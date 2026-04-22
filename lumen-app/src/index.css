@@ -1,0 +1,225 @@
+/* ---- Webfonts (must precede @import "tailwindcss") ---------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
+@import url('https://cdn.jsdelivr.net/npm/lxgw-wenkai-webfont@1.1.0/style.css');
+
+@import "tailwindcss";
+
+/* ==========================================================================
+   Lumen Design System — Foundation Tokens
+   从 /Lumen_Design_System/colors_and_type.css 同步
+   ========================================================================== */
+
+/* ---- Tailwind Theme (v4 CSS-first config) ------------------------------- */
+@theme {
+  /* Colors */
+  --color-paper:        #FAF7F2;
+  --color-paper-deep:   #F6F1E8;
+  --color-vellum:       #F3EDE3;
+  --color-sand:         #E8DFD1;
+  --color-sand-deep:    #D9CEBB;
+
+  --color-ink:          #2A241E;
+  --color-ink-soft:     #5A524A;
+  --color-ink-mute:     #8C8278;
+  --color-ink-faint:    #B5ABA0;
+
+  --color-ember:        #B85C3B;
+  --color-ember-soft:   #D68563;
+  --color-ember-tint:   #F4E3D9;
+  --color-moss:         #5F6B4A;
+  --color-moss-tint:    #E5E8DD;
+  --color-indigo:       #3A4A5E;
+  --color-indigo-tint:  #DDE3EB;
+
+  --color-warning:      #C68A2C;
+  --color-warning-bg:   #F5ECD7;
+  --color-danger:       #A33A2E;
+  --color-danger-bg:    #F1DCD7;
+
+  /* Font families */
+  --font-sans: 'Inter Tight', 'LXGW WenKai', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-serif: 'Source Serif 4', 'LXGW WenKai', 'Kaiti SC', 'STKaiti', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Border radius */
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-0: none;
+  --shadow-1: 0 1px 0 rgba(42, 36, 30, 0.06);
+  --shadow-2: 0 2px 8px rgba(42, 36, 30, 0.06), 0 1px 2px rgba(42, 36, 30, 0.04);
+  --shadow-3: 0 12px 32px rgba(42, 36, 30, 0.10), 0 2px 8px rgba(42, 36, 30, 0.06);
+}
+
+/* ---- Raw CSS Variables (non-Tailwind tokens) ---------------------------- */
+:root {
+  /* Focus ring */
+  --focus-ring:   rgba(184, 92, 59, 0.40);
+  --scrim:        rgba(42, 36, 30, 0.32);
+
+  /* Type scale */
+  --t-display-xl:   40px;   --lh-display-xl:  1.1;
+  --t-display-lg:   28px;   --lh-display-lg:  1.15;
+  --t-display-md:   22px;   --lh-display-md:  1.25;
+  --t-display-sm:   17px;   --lh-display-sm:  1.3;
+  --t-body-lg:      16px;   --lh-body-lg:     1.6;
+  --t-body:         14px;   --lh-body:        1.5;
+  --t-body-sm:      13px;   --lh-body-sm:     1.4;
+  --t-caption:      12px;   --lh-caption:     1.35;
+  --t-mono:         12px;   --lh-mono:        1.4;
+
+  /* Weights */
+  --w-regular: 400;
+  --w-medium:  500;
+  --w-semi:    600;
+
+  /* Spacing (4px baseline) */
+  --s-1:  4px;
+  --s-2:  8px;
+  --s-3:  12px;
+  --s-4:  16px;
+  --s-5:  20px;
+  --s-6:  24px;
+  --s-8:  32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* Motion */
+  --dur-fast:   120ms;
+  --dur-base:   180ms;
+  --dur-slow:   280ms;
+  --dur-reader: 400ms;
+  --ease-out:   cubic-bezier(0.2, 0.6, 0.2, 1);
+  --ease-inout: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Layout */
+  --sidebar-w:       240px;
+  --sidebar-w-mini:  56px;
+  --titlebar-h:      40px;
+  --reader-max:      720px;
+  --chat-max:        780px;
+
+  /* Z-index */
+  --z-base:    1;
+  --z-sticky:  10;
+  --z-popover: 100;
+  --z-modal:   1000;
+  --z-toast:   2000;
+}
+
+/* ---- Base Styles -------------------------------------------------------- */
+html, body {
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ---- Semantic Type Classes ---------------------------------------------- */
+.t-display-xl { font: var(--w-medium) var(--t-display-xl)/var(--lh-display-xl) var(--font-sans); letter-spacing: -0.01em; }
+.t-display-lg { font: var(--w-medium) var(--t-display-lg)/var(--lh-display-lg) var(--font-sans); letter-spacing: -0.01em; }
+.t-display-md { font: var(--w-medium) var(--t-display-md)/var(--lh-display-md) var(--font-sans); letter-spacing: -0.01em; }
+.t-display-sm { font: var(--w-medium) var(--t-display-sm)/var(--lh-display-sm) var(--font-sans); }
+.t-body-lg    { font: var(--w-regular) var(--t-body-lg)/var(--lh-body-lg) var(--font-serif); }
+.t-body       { font: var(--w-regular) var(--t-body)/var(--lh-body) var(--font-sans); }
+.t-body-sm    { font: var(--w-regular) var(--t-body-sm)/var(--lh-body-sm) var(--font-sans); color: var(--color-ink-soft); }
+.t-caption    { font: var(--w-medium) var(--t-caption)/var(--lh-caption) var(--font-sans); letter-spacing: 0.02em; color: var(--color-ink-mute); }
+.t-mono       { font: var(--w-regular) var(--t-mono)/var(--lh-mono) var(--font-mono); color: var(--color-ink-soft); }
+.t-read       { font: var(--w-regular) var(--t-body-lg)/var(--lh-body-lg) var(--font-serif); color: var(--color-ink); }
+
+/* ---- Element Resets ----------------------------------------------------- */
+h1 { font: var(--w-medium) var(--t-display-lg)/var(--lh-display-lg) var(--font-sans); letter-spacing: -0.01em; color: var(--color-ink); margin: 0; }
+h2 { font: var(--w-medium) var(--t-display-md)/var(--lh-display-md) var(--font-sans); letter-spacing: -0.01em; color: var(--color-ink); margin: 0; }
+h3 { font: var(--w-medium) var(--t-display-sm)/var(--lh-display-sm) var(--font-sans); color: var(--color-ink); margin: 0; }
+p  { margin: 0; }
+code, kbd, pre, samp { font-family: var(--font-mono); font-size: var(--t-mono); }
+
+/* ---- Links -------------------------------------------------------------- */
+a {
+  color: var(--color-indigo);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+a:hover { border-bottom-color: var(--color-ember); }
+
+/* ---- Focus -------------------------------------------------------------- */
+:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Selection ---------------------------------------------------------- */
+::selection { background: var(--color-ember-tint); color: var(--color-ink); }
+
+/* ---- PDF Text Layer ---- */
+.textLayer {
+  position: absolute !important;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1 !important;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+}
+.textLayer :is(span, br) {
+  color: transparent !important;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+.textLayer ::selection {
+  background: rgba(184, 92, 59, 0.35) !important;
+  color: transparent !important;
+}
+.textLayer ::-moz-selection {
+  background: rgba(184, 92, 59, 0.35) !important;
+  color: transparent !important;
+}
+.textLayer .pdf-highlight {
+  background: rgba(232, 197, 71, 0.35) !important;
+  color: transparent !important;
+  border-radius: 2px;
+  cursor: pointer !important;
+}
+.textLayer mark.pdf-highlight {
+  display: inline;
+}
+.textLayer .pdf-highlight:hover {
+  background: rgba(232, 197, 71, 0.5) !important;
+}
+.pdf-temp-overlay {
+  background: rgba(184, 92, 59, 0.25);
+  border-radius: 2px;
+  z-index: 10;
+}
+
+/* ---- Scrollbars --------------------------------------------------------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-sand-deep);
+  border-radius: var(--radius-full);
+  border: 2px solid var(--color-paper);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-ink-faint); }
