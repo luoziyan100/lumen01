@@ -107,33 +107,67 @@ lumen/
 | 阶段 | 目标 | 交付物 |
 |------|------|--------|
 | Phase 1 | 能导入论文 + 读 PDF + AI 对话 | Library · Reader · AI 面板 · 设置 |
-| Phase 2 | 精读能力 | 高亮标注 · 五问精读 · 术语卡片 · 多模型 · Collections |
+| Phase 2 | 精读能力 | 高亮标注 · 十问精读 · 术语卡片 · 多模型 · Collections |
 | Phase 3 | 跨论文深度研究 | Research 模块完整功能 · 研究报告导出 |
 | Phase 4 | 知识图谱与打磨 | Graph · 引用关系 · Token 统计 · Zotero 导入 |
 
-当前阶段：**Phase 1**
+当前阶段：**Phase 3 已基本完成，准备进入 Phase 4**
 
-### Phase 1 实施步骤
+---
+
+## 当前进度（2026-04-24 更新）
+
+### 已完成
+
+**Phase 1 — 全部完成**
+- 脚手架：Tauri v2 + React + TypeScript + Tailwind，设计系统 CSS 变量已接入
+- 窗口外壳：AppShell（自定义标题栏 + Sidebar + 主内容区）
+- PDF 渲染：pdf.js v4.10.38（v5 与 Tauri WebKit 不兼容，不要升级）
+- 数据层：Rust 端 SQLite（rusqlite），3 次 migration（v1 核心表，v2 collections，v3 research）
+- 文献导入：拖入 PDF → Rust 提取元数据 → 复制到应用目录 → 存库 → Library 列表
+- AI 面板：右侧面板，支持 OpenAI / DeepSeek / Claude / 自定义端点
+- 划词翻译：选中文本 → AI 翻译 → 浮层展示
+
+**Phase 2 — 大部分完成**
+- 高亮标注：局部高亮（文本节点拆分 + mark 包裹）、跨行高亮（空格归一化匹配）、临时选中高亮（overlay div + getClientRects，因为 WebKit 的 ::selection 在 mouseup 后消失）、持久化标注（annotations 表）
+- 十问精读：基于罗振宇「阅读十问」，一键发送 10 个深度问题给 AI（从最初的五问升级）
+- 术语卡片：选中术语 → AI 生成 JSON {term, definition, detail} → 可保存为 annotation
+- 多模型支持：OpenAI / DeepSeek / Claude / 自定义，统一 chatWithAI 接口
+- Collections：文献集合管理
+- 图片粘贴：聊天中 Ctrl+V 粘贴图片，支持 OpenAI 和 Anthropic 多模态格式
+- 停止生成：AbortController 中断 AI 请求，加载中显示停止按钮
+
+**Phase 3 — 基础完成**
+- 深度研究 LUI 聊天界面（纯对话式，不是项目管理 GUI）
+- 后端：research_projects / research_papers / research_notes 三表 + 完整 CRUD 命令
+- 论文内容提取：pdfjs 提取文本（前 15 页，每篇 max 6000 字符）
+- 系统提示词包含用户文献库列表
+- Markdown 导出研究报告
+
+### 尚未完成
+
+- **术语列表管理**：术语卡片可以保存，但没有统一的术语浏览/管理界面（Phase 2 时主动跳过）
+- **研究项目持久化**：后端 CRUD 已就绪，但前端 ResearchPage 目前是单次会话聊天，未接入项目保存/历史
+- **Phase 4 全部功能**：知识图谱 Graph 页面（目前是占位）、引用关系、Token 统计、Zotero 导入
+
+### 关键设计决策（新会话必读）
+
+1. **Research 用 LUI 而非 GUI**：用户明确要求「深度研究不是项目，是聊天窗口」，认为 LUI 是未来。不要把 Research 改回表单/项目管理的 GUI 风格。
+2. **PDF 渲染用 pdfjs v4**：v5 的 ESM 加载方式在 Tauri WebKit 下不工作，锁定 v4.10.38。
+3. **临时高亮用 overlay div**：WebKit 中 `::selection` 在 mouseup 后消失，DOM 操作方案（surroundContents、text node split）都不可靠。最终方案是 `range.getClientRects()` 生成绝对定位的 overlay div，`pointer-events: none`。
+4. **全部本地，无云端**：所有数据本地存储，AI 通过用户自己的 API Key 直连各厂商 API。
+5. **中文为主**：界面文案、注释、交互全部简体中文。
+
+### 文件清单
 
 ```
-1. 脚手架    → Tauri v2 + React + TypeScript + Tailwind，接入设计系统 CSS 变量
-2. 窗口外壳  → AppShell（标题栏 + Sidebar + 主内容区）
-3. PDF 渲染  → 主内容区跑通 pdf.js，能打开本地 PDF
-4. 数据层    → Rust 端 SQLite 建表，Tauri commands 暴露 CRUD
-5. 文献导入  → 拖入 PDF → Rust 提取元数据 → 存库 → Library 列表展示
-6. AI 面板   → 右侧面板，先接通一个 provider，能基于论文内容对话
-7. 划词翻译  → 选中文本 → AI 翻译 → 浮层展示
+src/pages/          — LibraryPage, ReaderPage, ResearchPage, GraphPage, SettingsPage, CollectionPage
+src/components/ai/  — AiPanel（聊天面板，支持图片粘贴 + 停止生成）
+src/components/reader/ — PdfViewer, SelectionToolbar, TranslatePopover, TermCard
+src/services/       — ai.ts, ai-config.ts, papers.ts, files.ts, annotations.ts, collections.ts, research.ts
+src-tauri/src/commands/ — papers, pdf, fs, research
+src-tauri/src/db/   — migrations.rs (v1-v3)
 ```
-
-### Phase 1 验收标准
-
-1. 打开 Lumen → 设置 → 输入 API Key
-2. 拖入一篇英文 PDF
-3. 自动提取标题、作者等元数据
-4. Reader 中正常阅读 PDF
-5. 选中一段英文 → 看到中文翻译
-6. 右侧 AI 面板 → 基于论文提问 → 得到准确回答
-7. 关闭重开 → 数据都在
 
 ## 编码规范
 
