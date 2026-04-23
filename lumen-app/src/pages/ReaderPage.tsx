@@ -114,13 +114,24 @@ export function ReaderPage() {
             <div className="ml-auto flex items-center gap-1 shrink-0">
               <button
                 onClick={() => {
-                  const prompt = `请帮我精读这篇论文《${fileName}》，回答以下5个问题，用中文回答：\n1.【一句话总结】这篇论文在说什么？\n2.【核心框架】论文的主要论点/框架是什么？\n3.【开放问题】论文提出了哪些未解决的问题？\n4.【对我的用处】这篇论文有什么直接可用的东西？\n5.【它的盲区】这篇论文没做到什么？`
+                  const prompt = `请帮我精读这篇论文《${fileName}》，依次回答以下十个问题，用中文回答：
+
+1.【核心问题】这篇论文试图回答什么问题？
+2.【前人研究】在这个问题上，前人的研究到了什么程度？这篇论文站在谁的肩膀上？
+3.【独特贡献】这篇论文给出了什么独特的、全新的答案或方法？
+4.【方法与数据】论文用了什么新方法、新数据集或新实验设计？
+5.【同期对比】同领域、同时期的其他重要工作提出了哪些不同观点或方法？
+6.【局限性】这篇论文的局限和可质疑之处是什么？
+7.【未解决问题】论文提出了哪些待解决的新问题和未来研究方向？
+8.【跨领域启发】这篇论文的方法或结论对其他领域有什么启发？
+9.【关键实验】最关键的实验结果、图表或案例是什么？为什么重要？
+10.【行动建议】读完这篇论文后，我应该做什么？（进一步阅读、复现实验、应用到自己的研究等）`
                   setDeepReadPrompt(prompt)
                   setShowAi(true)
                 }}
                 className="h-7 flex items-center gap-1 px-2 rounded-[var(--radius-sm)] cursor-pointer text-ink-mute hover:text-ink hover:bg-sand/50"
                 style={{ transition: 'all var(--dur-fast) var(--ease-out)' }}
-                title="五问精读"
+                title="十问精读"
               >
                 <BookOpen size={14} />
                 <span className="t-caption">精读</span>
