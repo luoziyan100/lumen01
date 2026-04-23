@@ -8,3 +8,4 @@ pub mod ai_config;
 pub mod collections;
 pub mod annotations;
 pub mod research;
+pub mod citations;

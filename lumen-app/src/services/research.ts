@@ -23,6 +23,14 @@ export interface ResearchPaper {
   file_path: string
 }
 
+export interface ResearchNote {
+  id: string
+  project_id: string
+  role: string | null
+  content: string
+  created_at: string | null
+}
+
 export async function createResearchProject(name: string): Promise<ResearchProject> {
   return invoke('create_research_project', { name })
 }
@@ -61,4 +69,12 @@ export async function listResearchPapers(projectId: string): Promise<ResearchPap
 
 export async function saveResearchReport(projectId: string, report: string): Promise<void> {
   return invoke('save_research_report', { projectId, report })
+}
+
+export async function addResearchNote(projectId: string, role: string, content: string): Promise<ResearchNote> {
+  return invoke('add_research_note', { projectId, role, content })
+}
+
+export async function listResearchNotes(projectId: string): Promise<ResearchNote[]> {
+  return invoke('list_research_notes', { projectId })
 }

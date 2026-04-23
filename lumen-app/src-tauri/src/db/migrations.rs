@@ -40,7 +40,43 @@ pub fn run(conn: &Connection) -> Result<()> {
         log::info!("迁移 v3: Research 表创建完成");
     }
 
+    if current < 4 {
+        v4_research_notes_role(conn)?;
+        conn.execute("INSERT INTO _migrations (version) VALUES (4)", [])?;
+        log::info!("迁移 v4: research_notes 增加 role 列");
+    }
+
+    if current < 5 {
+        v5_citations(conn)?;
+        conn.execute("INSERT INTO _migrations (version) VALUES (5)", [])?;
+        log::info!("迁移 v5: citations 引用关系表创建完成");
+    }
+
     Ok(())
+}
+
+/// v5: 引用关系 — 论文间的引用边
+fn v5_citations(conn: &Connection) -> Result<()> {
+    conn.execute_batch("
+        CREATE TABLE citations (
+            id         TEXT PRIMARY KEY,
+            citing_id  TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+            cited_id   TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+            context    TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(citing_id, cited_id)
+        );
+
+        CREATE INDEX idx_citations_citing ON citations(citing_id);
+        CREATE INDEX idx_citations_cited  ON citations(cited_id);
+    ")
+}
+
+/// v4: 给 research_notes 增加 role 列，用于区分 user/assistant 消息
+fn v4_research_notes_role(conn: &Connection) -> Result<()> {
+    conn.execute_batch("
+        ALTER TABLE research_notes ADD COLUMN role TEXT DEFAULT 'user';
+    ")
 }
 
 /// v1: 核心表 — papers, tags, paper_tags, annotations, ai_config

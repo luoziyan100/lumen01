@@ -30,6 +30,7 @@ pub struct ResearchPaper {
 pub struct ResearchNote {
     pub id: String,
     pub project_id: String,
+    pub role: Option<String>,
     pub content: String,
     pub created_at: Option<String>,
 }
@@ -208,4 +209,65 @@ pub fn save_research_report(db: State<DbState>, project_id: String, report: Stri
     )
     .map_err(|e| format!("保存报告失败: {}", e))?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn add_research_note(
+    db: State<DbState>,
+    project_id: String,
+    role: String,
+    content: String,
+) -> Result<ResearchNote, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+
+    conn.execute(
+        "INSERT INTO research_notes (id, project_id, role, content) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![id, project_id, role, content],
+    )
+    .map_err(|e| format!("保存研究笔记失败: {}", e))?;
+
+    conn.execute(
+        "UPDATE research_projects SET updated_at = datetime('now') WHERE id = ?1",
+        [&project_id],
+    )
+    .map_err(|_| "更新时间失败".to_string())?;
+
+    Ok(ResearchNote {
+        id,
+        project_id,
+        role: Some(role),
+        content,
+        created_at: None,
+    })
+}
+
+#[tauri::command]
+pub fn list_research_notes(db: State<DbState>, project_id: String) -> Result<Vec<ResearchNote>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, project_id, role, content, created_at
+             FROM research_notes
+             WHERE project_id = ?1
+             ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let notes = stmt
+        .query_map([&project_id], |row| {
+            Ok(ResearchNote {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(notes)
 }
