@@ -34,6 +34,12 @@ pub fn run(conn: &Connection) -> Result<()> {
         log::info!("迁移 v2: Collections 表创建完成");
     }
 
+    if current < 3 {
+        v3_research(conn)?;
+        conn.execute("INSERT INTO _migrations (version) VALUES (3)", [])?;
+        log::info!("迁移 v3: Research 表创建完成");
+    }
+
     Ok(())
 }
 
@@ -119,5 +125,37 @@ fn v2_collections(conn: &Connection) -> Result<()> {
 
         CREATE INDEX idx_collection_papers_coll ON collection_papers(collection_id);
         CREATE INDEX idx_collection_papers_paper ON collection_papers(paper_id);
+    ")
+}
+
+/// v3: Research — 研究项目、关联论文、研究笔记
+fn v3_research(conn: &Connection) -> Result<()> {
+    conn.execute_batch("
+        CREATE TABLE research_projects (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            question    TEXT,
+            status      TEXT DEFAULT 'active',
+            report      TEXT,
+            created_at  TEXT DEFAULT (datetime('now')),
+            updated_at  TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE research_papers (
+            project_id TEXT REFERENCES research_projects(id) ON DELETE CASCADE,
+            paper_id   TEXT REFERENCES papers(id) ON DELETE CASCADE,
+            added_at   TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (project_id, paper_id)
+        );
+
+        CREATE TABLE research_notes (
+            id         TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES research_projects(id) ON DELETE CASCADE,
+            content    TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX idx_research_papers_proj ON research_papers(project_id);
+        CREATE INDEX idx_research_notes_proj ON research_notes(project_id);
     ")
 }

@@ -7,3 +7,4 @@ pub mod files;
 pub mod ai_config;
 pub mod collections;
 pub mod annotations;
+pub mod research;

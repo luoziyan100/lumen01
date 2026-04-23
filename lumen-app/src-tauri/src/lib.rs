@@ -42,6 +42,15 @@ pub fn run() {
             commands::annotations::create_annotation,
             commands::annotations::list_annotations,
             commands::annotations::delete_annotation,
+            commands::research::create_research_project,
+            commands::research::list_research_projects,
+            commands::research::get_research_project,
+            commands::research::update_research_project,
+            commands::research::delete_research_project,
+            commands::research::add_paper_to_research,
+            commands::research::remove_paper_from_research,
+            commands::research::list_research_papers,
+            commands::research::save_research_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
