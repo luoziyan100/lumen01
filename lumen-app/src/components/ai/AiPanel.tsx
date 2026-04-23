@@ -4,9 +4,9 @@
  * [POS]: ai 模块的聊天面板，被 ReaderPage 消费
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { chatWithAI, PROVIDERS, type ChatMessage } from '../../services/ai'
+import { chatWithAI, PROVIDERS, type ChatMessage, type ImageData } from '../../services/ai'
 import { getAiConfig } from '../../services/ai-config'
-import { Send, X, Loader2 } from 'lucide-react'
+import { Send, X, Loader2, Square, ImageIcon } from 'lucide-react'
 
 interface AiPanelProps {
   paperTitle: string
@@ -18,6 +18,7 @@ interface DisplayMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  images?: ImageData[]
 }
 
 export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
@@ -26,8 +27,10 @@ export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [modelLabel, setModelLabel] = useState('')
+  const [pendingImages, setPendingImages] = useState<ImageData[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     getAiConfig().then((config) => {
@@ -46,15 +49,19 @@ export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
     inputRef.current?.focus()
   }, [])
 
-  const sendMessage = useCallback(async (text: string, prevMessages: DisplayMessage[]) => {
+  const sendMessage = useCallback(async (text: string, prevMessages: DisplayMessage[], images?: ImageData[]) => {
     const userMsg: DisplayMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text,
+      images,
     }
     setMessages((prev) => [...prev, userMsg])
     setError(null)
     setLoading(true)
+
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
       const systemPrompt: ChatMessage = {
@@ -64,19 +71,21 @@ export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
 
       const history: ChatMessage[] = [
         systemPrompt,
-        ...prevMessages.map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
-        { role: 'user' as const, content: text },
+        ...prevMessages.map((m) => ({ role: m.role, content: m.content, images: m.images }) as ChatMessage),
+        { role: 'user' as const, content: text, images },
       ]
 
-      const reply = await chatWithAI(history)
+      const reply = await chatWithAI(history, undefined, controller.signal)
 
       setMessages((prev) => [
         ...prev,
         { id: crypto.randomUUID(), role: 'assistant', content: reply },
       ])
     } catch (e) {
+      if (controller.signal.aborted) return
       setError(String(e))
     } finally {
+      abortRef.current = null
       setLoading(false)
     }
   }, [paperTitle])
@@ -84,9 +93,37 @@ export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
   const handleSend = useCallback(async () => {
     const text = input.trim()
     if (!text || loading) return
+    const images = pendingImages.length > 0 ? [...pendingImages] : undefined
     setInput('')
-    sendMessage(text, messages)
-  }, [input, loading, messages, sendMessage])
+    setPendingImages([])
+    sendMessage(text, messages, images)
+  }, [input, loading, messages, pendingImages, sendMessage])
+
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setLoading(false)
+  }, [])
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (!item.type.startsWith('image/')) continue
+      e.preventDefault()
+      const file = item.getAsFile()
+      if (!file) continue
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = reader.result as string
+        const [header, base64] = dataUrl.split(',')
+        const mediaType = header.match(/data:(.*?);/)?.[1] || 'image/png'
+        setPendingImages((prev) => [...prev, { base64, mediaType }])
+      }
+      reader.readAsDataURL(file)
+      break
+    }
+  }, [])
 
   const initialSent = useRef(false)
   useEffect(() => {
@@ -163,6 +200,25 @@ export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
 
       {/* 输入区 */}
       <div className="px-4 py-3 border-t border-sand shrink-0">
+        {pendingImages.length > 0 && (
+          <div className="flex gap-2 mb-2 flex-wrap">
+            {pendingImages.map((img, i) => (
+              <div key={i} className="relative group">
+                <img
+                  src={`data:${img.mediaType};base64,${img.base64}`}
+                  className="h-16 rounded-[var(--radius-sm)] border border-sand object-cover"
+                />
+                <button
+                  onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center rounded-full text-white text-[10px] opacity-0 group-hover:opacity-100 cursor-pointer"
+                  style={{ background: 'var(--color-danger)', transition: 'opacity var(--dur-fast) var(--ease-out)' }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div
           className="flex items-end gap-2 rounded-[var(--radius-md)] border border-sand px-3 py-2"
           style={{
@@ -175,25 +231,41 @@ export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="输入问题..."
+            onPaste={handlePaste}
+            placeholder="输入问题...（可粘贴图片）"
             rows={1}
             className="flex-1 resize-none border-none outline-none t-body bg-transparent"
             style={{ maxHeight: 120 }}
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || loading}
-            className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
-            style={{
-              background: 'var(--color-ember)',
-              color: 'white',
-              transition: 'opacity var(--dur-fast) var(--ease-out)',
-            }}
-          >
-            <Send size={13} />
-          </button>
+          {loading ? (
+            <button
+              onClick={handleStop}
+              className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] shrink-0 cursor-pointer"
+              style={{
+                background: 'var(--color-danger)',
+                color: 'white',
+                transition: 'opacity var(--dur-fast) var(--ease-out)',
+              }}
+              title="停止生成"
+            >
+              <Square size={11} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() && pendingImages.length === 0}
+              className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
+              style={{
+                background: 'var(--color-ember)',
+                color: 'white',
+                transition: 'opacity var(--dur-fast) var(--ease-out)',
+              }}
+            >
+              <Send size={13} />
+            </button>
+          )}
         </div>
-        <p className="t-caption mt-1.5 text-center">Enter 发送，Shift+Enter 换行</p>
+        <p className="t-caption mt-1.5 text-center">Enter 发送，Shift+Enter 换行，可粘贴图片</p>
       </div>
     </div>
   )
@@ -212,6 +284,17 @@ function MessageBubble({ message }: { message: DisplayMessage }) {
           background: isUser ? 'var(--color-indigo)' : 'var(--color-vellum)',
         }}
       >
+        {message.images && message.images.length > 0 && (
+          <div className="flex gap-1.5 mb-2 flex-wrap">
+            {message.images.map((img, i) => (
+              <img
+                key={i}
+                src={`data:${img.mediaType};base64,${img.base64}`}
+                className="max-h-32 rounded-[var(--radius-sm)] object-cover"
+              />
+            ))}
+          </div>
+        )}
         {message.content}
       </div>
     </div>

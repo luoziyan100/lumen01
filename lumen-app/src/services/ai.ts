@@ -1,13 +1,19 @@
 /**
  * [INPUT]: 依赖 ai-config service
- * [OUTPUT]: 对外提供 chatWithAI, PROVIDERS, ChatMessage 类型
- * [POS]: services 层的 AI 对话，支持多提供商 API，被 AI 面板和翻译浮层消费
+ * [OUTPUT]: 对外提供 chatWithAI, PROVIDERS, ChatMessage, ImageData 类型
+ * [POS]: services 层的 AI 对话，支持多提供商 API / 图片 / 中断，被 AI 面板和翻译浮层消费
  */
 import { getAiConfig } from './ai-config'
+
+export interface ImageData {
+  base64: string
+  mediaType: string
+}
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  images?: ImageData[]
 }
 
 export interface ProviderDef {
@@ -29,11 +35,28 @@ const OPENAI_COMPAT_ENDPOINTS: Record<string, string> = {
   deepseek: 'https://api.deepseek.com/chat/completions',
 }
 
+function buildOpenAIMessages(messages: ChatMessage[]) {
+  return messages.map((m) => {
+    if (m.images?.length) {
+      const content: unknown[] = [{ type: 'text', text: m.content }]
+      for (const img of m.images) {
+        content.push({
+          type: 'image_url',
+          image_url: { url: `data:${img.mediaType};base64,${img.base64}` },
+        })
+      }
+      return { role: m.role, content }
+    }
+    return { role: m.role, content: m.content }
+  })
+}
+
 async function callOpenAICompat(
   endpoint: string,
   apiKey: string,
   model: string,
   messages: ChatMessage[],
+  signal?: AbortSignal,
 ): Promise<string> {
   const res = await fetch(endpoint, {
     method: 'POST',
@@ -41,7 +64,8 @@ async function callOpenAICompat(
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model, messages }),
+    body: JSON.stringify({ model, messages: buildOpenAIMessages(messages) }),
+    signal,
   })
 
   if (!res.ok) {
@@ -53,13 +77,30 @@ async function callOpenAICompat(
   return data.choices?.[0]?.message?.content ?? ''
 }
 
+function buildAnthropicMessages(messages: ChatMessage[]) {
+  return messages.filter((m) => m.role !== 'system').map((m) => {
+    if (m.images?.length) {
+      const content: unknown[] = []
+      for (const img of m.images) {
+        content.push({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
+        })
+      }
+      content.push({ type: 'text', text: m.content })
+      return { role: m.role, content }
+    }
+    return { role: m.role, content: m.content }
+  })
+}
+
 async function callAnthropic(
   apiKey: string,
   model: string,
   messages: ChatMessage[],
+  signal?: AbortSignal,
 ): Promise<string> {
   const systemMsg = messages.find((m) => m.role === 'system')
-  const nonSystemMsgs = messages.filter((m) => m.role !== 'system')
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -73,8 +114,9 @@ async function callAnthropic(
       model,
       max_tokens: 4096,
       system: systemMsg?.content,
-      messages: nonSystemMsgs.map((m) => ({ role: m.role, content: m.content })),
+      messages: buildAnthropicMessages(messages),
     }),
+    signal,
   })
 
   if (!res.ok) {
@@ -89,6 +131,7 @@ async function callAnthropic(
 export async function chatWithAI(
   messages: ChatMessage[],
   provider?: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const config = await getAiConfig(provider)
   if (!config?.api_key) {
@@ -98,12 +141,12 @@ export async function chatWithAI(
   const model = config.default_model || PROVIDERS.find((p) => p.id === config.provider)?.modelHint || ''
 
   if (config.provider === 'anthropic') {
-    return callAnthropic(config.api_key, model, messages)
+    return callAnthropic(config.api_key, model, messages, signal)
   }
 
   const endpoint = OPENAI_COMPAT_ENDPOINTS[config.provider]
   if (endpoint) {
-    return callOpenAICompat(endpoint, config.api_key, model, messages)
+    return callOpenAICompat(endpoint, config.api_key, model, messages, signal)
   }
 
   if (config.provider === 'custom') {
@@ -113,7 +156,7 @@ export async function chatWithAI(
     if (!customEndpoint) {
       throw new Error('自定义提供商需要在模型字段填写完整的 API 端点 URL')
     }
-    return callOpenAICompat(customEndpoint, config.api_key, model, messages)
+    return callOpenAICompat(customEndpoint, config.api_key, model, messages, signal)
   }
 
   throw new Error(`不支持的 AI 提供商: ${config.provider}`)

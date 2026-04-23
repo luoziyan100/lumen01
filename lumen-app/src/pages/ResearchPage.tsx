@@ -4,17 +4,18 @@
  * [POS]: pages 模块的深度研究页面，LUI 聊天界面，挂载在 /research 路由
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { chatWithAI, type ChatMessage } from '../services/ai'
+import { chatWithAI, type ChatMessage, type ImageData } from '../services/ai'
 import { listPapers, type Paper } from '../services/papers'
 import { loadPdfData } from '../services/files'
 import { getAiConfig, type AiConfig } from '../services/ai-config'
 import { PROVIDERS } from '../services/ai'
-import { Send, Loader2, Download } from 'lucide-react'
+import { Send, Loader2, Download, Square } from 'lucide-react'
 
 interface DisplayMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  images?: ImageData[]
 }
 
 export function ResearchPage() {
@@ -24,8 +25,10 @@ export function ResearchPage() {
   const [error, setError] = useState<string | null>(null)
   const [papers, setPapers] = useState<Paper[]>([])
   const [modelLabel, setModelLabel] = useState('')
+  const [pendingImages, setPendingImages] = useState<ImageData[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     listPapers().then(setPapers).catch(console.error)
@@ -105,15 +108,21 @@ ${paperList}
     const text = input.trim()
     if (!text || loading) return
 
+    const images = pendingImages.length > 0 ? [...pendingImages] : undefined
     const userMsg: DisplayMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text,
+      images,
     }
     setMessages((prev) => [...prev, userMsg])
     setInput('')
+    setPendingImages([])
     setError(null)
     setLoading(true)
+
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
       const isFirstOrResearchQuery = messages.length === 0 ||
@@ -126,25 +135,54 @@ ${paperList}
 
       const history: ChatMessage[] = [
         { role: 'system', content: buildSystemPrompt() },
-        ...messages.map((m) => ({ role: m.role, content: m.content }) as ChatMessage),
+        ...messages.map((m) => ({ role: m.role, content: m.content, images: m.images }) as ChatMessage),
         {
           role: 'user' as const,
           content: paperContext ? text + paperContext : text,
+          images,
         },
       ]
 
-      const reply = await chatWithAI(history)
+      const reply = await chatWithAI(history, undefined, controller.signal)
 
       setMessages((prev) => [
         ...prev,
         { id: crypto.randomUUID(), role: 'assistant', content: reply },
       ])
     } catch (e) {
+      if (controller.signal.aborted) return
       setError(String(e))
     } finally {
+      abortRef.current = null
       setLoading(false)
     }
-  }, [input, loading, messages, papers, buildSystemPrompt, extractPaperContent])
+  }, [input, loading, messages, papers, pendingImages, buildSystemPrompt, extractPaperContent])
+
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setLoading(false)
+  }, [])
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (!item.type.startsWith('image/')) continue
+      e.preventDefault()
+      const file = item.getAsFile()
+      if (!file) continue
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = reader.result as string
+        const [header, base64] = dataUrl.split(',')
+        const mediaType = header.match(/data:(.*?);/)?.[1] || 'image/png'
+        setPendingImages((prev) => [...prev, { base64, mediaType }])
+      }
+      reader.readAsDataURL(file)
+      break
+    }
+  }, [])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -218,6 +256,17 @@ ${paperList}
                     background: msg.role === 'user' ? 'var(--color-indigo)' : 'var(--color-vellum)',
                   }}
                 >
+                  {msg.images && msg.images.length > 0 && (
+                    <div className="flex gap-1.5 mb-2 flex-wrap">
+                      {msg.images.map((img, i) => (
+                        <img
+                          key={i}
+                          src={`data:${img.mediaType};base64,${img.base64}`}
+                          className="max-h-40 rounded-[var(--radius-sm)] object-cover"
+                        />
+                      ))}
+                    </div>
+                  )}
                   {msg.content}
                 </div>
               </div>
@@ -248,6 +297,25 @@ ${paperList}
       {/* 输入区 */}
       <div className="px-6 py-4 border-t border-sand shrink-0">
         <div className="max-w-3xl mx-auto">
+          {pendingImages.length > 0 && (
+            <div className="flex gap-2 mb-2 flex-wrap">
+              {pendingImages.map((img, i) => (
+                <div key={i} className="relative group">
+                  <img
+                    src={`data:${img.mediaType};base64,${img.base64}`}
+                    className="h-20 rounded-[var(--radius-sm)] border border-sand object-cover"
+                  />
+                  <button
+                    onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
+                    className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center rounded-full text-white text-[10px] opacity-0 group-hover:opacity-100 cursor-pointer"
+                    style={{ background: 'var(--color-danger)', transition: 'opacity var(--dur-fast) var(--ease-out)' }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div
             className="flex items-end gap-2 rounded-[var(--radius-md)] border border-sand px-4 py-3"
             style={{
@@ -260,25 +328,41 @@ ${paperList}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="例如：帮我分析这些论文在 AI Agent 架构设计上的共识和分歧"
+              onPaste={handlePaste}
+              placeholder="例如：帮我分析这些论文在 AI Agent 架构设计上的共识和分歧（可粘贴图片）"
               rows={2}
               className="flex-1 resize-none border-none outline-none t-body bg-transparent"
               style={{ maxHeight: 160 }}
             />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || loading}
-              className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
-              style={{
-                background: 'var(--color-ember)',
-                color: 'white',
-                transition: 'opacity var(--dur-fast) var(--ease-out)',
-              }}
-            >
-              <Send size={14} />
-            </button>
+            {loading ? (
+              <button
+                onClick={handleStop}
+                className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] shrink-0 cursor-pointer"
+                style={{
+                  background: 'var(--color-danger)',
+                  color: 'white',
+                  transition: 'opacity var(--dur-fast) var(--ease-out)',
+                }}
+                title="停止生成"
+              >
+                <Square size={12} />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() && pendingImages.length === 0}
+                className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                style={{
+                  background: 'var(--color-ember)',
+                  color: 'white',
+                  transition: 'opacity var(--dur-fast) var(--ease-out)',
+                }}
+              >
+                <Send size={14} />
+              </button>
+            )}
           </div>
-          <p className="t-caption mt-1.5 text-center">Enter 发送，Shift+Enter 换行</p>
+          <p className="t-caption mt-1.5 text-center">Enter 发送，Shift+Enter 换行，可粘贴图片</p>
         </div>
       </div>
     </div>
