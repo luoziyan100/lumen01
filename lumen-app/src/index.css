@@ -11,30 +11,30 @@
 
 /* ---- Tailwind Theme (v4 CSS-first config) ------------------------------- */
 @theme {
-  /* Colors */
-  --color-paper:        #FAF7F2;
-  --color-paper-deep:   #F6F1E8;
-  --color-vellum:       #F3EDE3;
-  --color-sand:         #E8DFD1;
-  --color-sand-deep:    #D9CEBB;
+  /* Colors — Green botanical palette (from shadcn tweakcn theme) */
+  --color-paper:        oklch(0.9641 0.0052 158.60);
+  --color-paper-deep:   oklch(0.9424 0.0083 158.53);
+  --color-vellum:       oklch(0.9278 0.0104 158.48);
+  --color-sand:         oklch(0.8890 0.0105 158.46);
+  --color-sand-deep:    oklch(0.8513 0.0142 158.36);
 
-  --color-ink:          #2A241E;
-  --color-ink-soft:     #5A524A;
-  --color-ink-mute:     #8C8278;
-  --color-ink-faint:    #B5ABA0;
+  --color-ink:          oklch(0.2836 0.0272 156.43);
+  --color-ink-soft:     oklch(0.3391 0.0346 156.27);
+  --color-ink-mute:     oklch(0.4858 0.0418 156.69);
+  --color-ink-faint:    oklch(0.7038 0.0439 157.29);
 
-  --color-ember:        #B85C3B;
-  --color-ember-soft:   #D68563;
-  --color-ember-tint:   #F4E3D9;
-  --color-moss:         #5F6B4A;
-  --color-moss-tint:    #E5E8DD;
-  --color-indigo:       #3A4A5E;
-  --color-indigo-tint:  #DDE3EB;
+  --color-ember:        oklch(0.5852 0.0854 61.14);
+  --color-ember-soft:   oklch(0.6500 0.0700 61.00);
+  --color-ember-tint:   oklch(0.9300 0.0200 61.00);
+  --color-moss:         oklch(0.5313 0.1014 153.37);
+  --color-moss-tint:    oklch(0.9115 0.0084 158.52);
+  --color-indigo:       oklch(0.5313 0.1014 153.37);
+  --color-indigo-tint:  oklch(0.9115 0.0084 158.52);
 
-  --color-warning:      #C68A2C;
-  --color-warning-bg:   #F5ECD7;
-  --color-danger:       #A33A2E;
-  --color-danger-bg:    #F1DCD7;
+  --color-warning:      oklch(0.5852 0.0854 61.14);
+  --color-warning-bg:   oklch(0.9300 0.0200 61.00);
+  --color-danger:       oklch(0.5107 0.1226 22.40);
+  --color-danger-bg:    oklch(0.9300 0.0300 22.00);
 
   /* Font families */
   --font-sans: 'Inter Tight', 'LXGW WenKai', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -48,18 +48,18 @@
   --radius-xl:   16px;
   --radius-full: 9999px;
 
-  /* Shadows */
+  /* Shadows — green-tinted */
   --shadow-0: none;
-  --shadow-1: 0 1px 0 rgba(42, 36, 30, 0.06);
-  --shadow-2: 0 2px 8px rgba(42, 36, 30, 0.06), 0 1px 2px rgba(42, 36, 30, 0.04);
-  --shadow-3: 0 12px 32px rgba(42, 36, 30, 0.10), 0 2px 8px rgba(42, 36, 30, 0.06);
+  --shadow-1: 2px 2px 0px 0px hsl(142 20% 15% / 0.05);
+  --shadow-2: 2px 2px 0px 0px hsl(142 20% 15% / 0.10), 2px 2px 4px -1px hsl(142 20% 15% / 0.10);
+  --shadow-3: 2px 2px 0px 0px hsl(142 20% 15% / 0.10), 2px 4px 6px -1px hsl(142 20% 15% / 0.10);
 }
 
 /* ---- Raw CSS Variables (non-Tailwind tokens) ---------------------------- */
 :root {
   /* Focus ring */
-  --focus-ring:   rgba(184, 92, 59, 0.40);
-  --scrim:        rgba(42, 36, 30, 0.32);
+  --focus-ring:   oklch(0.5313 0.1014 153.37 / 0.40);
+  --scrim:        oklch(0.2836 0.0272 156.43 / 0.32);
 
   /* Type scale */
   --t-display-xl:   40px;   --lh-display-xl:  1.1;
@@ -156,17 +156,17 @@ a {
   border-bottom: 1px solid transparent;
   transition: border-color var(--dur-fast) var(--ease-out);
 }
-a:hover { border-bottom-color: var(--color-ember); }
+a:hover { border-bottom-color: var(--color-moss); }
 
 /* ---- Focus -------------------------------------------------------------- */
 :focus-visible {
-  outline: 2px solid var(--color-ember);
+  outline: 2px solid var(--color-moss);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
 
 /* ---- Selection ---------------------------------------------------------- */
-::selection { background: var(--color-ember-tint); color: var(--color-ink); }
+::selection { background: var(--color-moss-tint); color: var(--color-ink); }
 
 /* ---- PDF Text Layer ---- */
 .textLayer {
@@ -189,11 +189,11 @@ a:hover { border-bottom-color: var(--color-ember); }
   transform-origin: 0% 0%;
 }
 .textLayer ::selection {
-  background: rgba(184, 92, 59, 0.35) !important;
+  background: oklch(0.5313 0.1014 153.37 / 0.30) !important;
   color: transparent !important;
 }
 .textLayer ::-moz-selection {
-  background: rgba(184, 92, 59, 0.35) !important;
+  background: oklch(0.5313 0.1014 153.37 / 0.30) !important;
   color: transparent !important;
 }
 .textLayer .pdf-highlight {
@@ -209,7 +209,7 @@ a:hover { border-bottom-color: var(--color-ember); }
   background: rgba(232, 197, 71, 0.5) !important;
 }
 .pdf-temp-overlay {
-  background: rgba(184, 92, 59, 0.25);
+  background: oklch(0.5313 0.1014 153.37 / 0.20);
   border-radius: 2px;
   z-index: 10;
 }

@@ -93,9 +93,9 @@ export function CitationGraph({
       ctx.beginPath()
       ctx.arc(node.x!, node.y!, radius, 0, 2 * Math.PI)
       const alpha = Math.min(0.4 + degree * 0.12, 1)
-      ctx.fillStyle = `rgba(89, 86, 173, ${alpha})`
+      ctx.fillStyle = `rgba(58, 122, 80, ${alpha})`
       ctx.fill()
-      ctx.strokeStyle = 'rgba(89, 86, 173, 0.6)'
+      ctx.strokeStyle = 'rgba(58, 122, 80, 0.6)'
       ctx.lineWidth = 1
       ctx.stroke()
 
@@ -106,7 +106,7 @@ export function CitationGraph({
         ctx.font = `${fontSize}px Inter, system-ui, sans-serif`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'top'
-        ctx.fillStyle = 'rgba(60, 56, 48, 0.75)'
+        ctx.fillStyle = 'rgba(43, 58, 48, 0.75)'
         ctx.fillText(label, node.x!, node.y! + radius + 3)
       }
     },
