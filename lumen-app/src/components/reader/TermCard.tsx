@@ -29,6 +29,7 @@ export function TermCard({ term, x, y, paperId, pageNum, onClose, onSaved }: Ter
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [containerWidth, setContainerWidth] = useState(800)
   const cardRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -58,6 +59,12 @@ export function TermCard({ term, x, y, paperId, pageNum, onClose, onSaved }: Ter
 
     return () => { cancelled = true }
   }, [term])
+
+  useEffect(() => {
+    if (cardRef.current?.parentElement) {
+      setContainerWidth(cardRef.current.parentElement.clientWidth)
+    }
+  }, [])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -93,7 +100,7 @@ export function TermCard({ term, x, y, paperId, pageNum, onClose, onSaved }: Ter
       onMouseUp={(e) => e.stopPropagation()}
       className="absolute rounded-[var(--radius-md)] border border-sand"
       style={{
-        left: Math.max(8, Math.min(x - width / 2, (cardRef.current?.parentElement?.clientWidth ?? 800) - width - 8)),
+        left: Math.max(8, Math.min(x - width / 2, containerWidth - width - 8)),
         top: y - 8,
         transform: 'translateY(-100%)',
         width,

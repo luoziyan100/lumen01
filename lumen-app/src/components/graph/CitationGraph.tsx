@@ -16,6 +16,8 @@ interface GraphNode {
   year: number | null
   citedByCount: number
   citesCount: number
+  x?: number
+  y?: number
 }
 
 interface GraphLink {
@@ -131,7 +133,7 @@ export function CitationGraph({
   )
 
   const handleNodeHover = useCallback(
-    (node: GraphNode | null, previousNode: GraphNode | null, event?: MouseEvent) => {
+    (node: GraphNode | null, _prev: GraphNode | null, event?: MouseEvent) => {
       onNodeHover?.(node, event!)
     },
     [onNodeHover],

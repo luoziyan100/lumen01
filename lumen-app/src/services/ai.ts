@@ -150,13 +150,14 @@ export async function chatWithAI(
   }
 
   if (config.provider === 'custom') {
-    const customEndpoint = config.default_model?.includes('http')
-      ? config.default_model
-      : null
+    const modelField = config.default_model || ''
+    const parts = modelField.split('|').map((s) => s.trim())
+    const customEndpoint = parts.find((p) => p.startsWith('http'))
+    const customModel = parts.find((p) => !p.startsWith('http')) || ''
     if (!customEndpoint) {
-      throw new Error('自定义提供商需要在模型字段填写完整的 API 端点 URL')
+      throw new Error('自定义提供商需要在模型字段填写 API 端点 URL（格式：URL 或 URL|模型名）')
     }
-    return callOpenAICompat(customEndpoint, config.api_key, model, messages, signal)
+    return callOpenAICompat(customEndpoint, config.api_key, customModel, messages, signal)
   }
 
   throw new Error(`不支持的 AI 提供商: ${config.provider}`)

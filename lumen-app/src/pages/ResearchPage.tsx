@@ -132,7 +132,7 @@ ${paperList}
     for (const p of papersToRead) {
       try {
         const bytes = await loadPdfData(p.file_path)
-        const blob = new Blob([bytes], { type: 'application/pdf' })
+        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' })
         const url = URL.createObjectURL(blob)
         const pdfjsLib = await import('pdfjs-dist')
         const doc = await pdfjsLib.getDocument(url).promise
@@ -141,7 +141,7 @@ ${paperList}
         for (let i = 1; i <= maxPages; i++) {
           const page = await doc.getPage(i)
           const content = await page.getTextContent()
-          text += content.items.map((item: { str?: string }) => item.str || '').join(' ') + '\n'
+          text += content.items.map((item) => ('str' in item ? item.str : '')).join(' ') + '\n'
         }
         URL.revokeObjectURL(url)
         contents.push(`【《${p.title}》全文摘要】\n${text.slice(0, 6000)}`)

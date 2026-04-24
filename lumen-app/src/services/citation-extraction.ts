@@ -16,7 +16,7 @@ interface ExtractedRef {
 
 async function extractReferencesText(filePath: string): Promise<string> {
   const bytes = await loadPdfData(filePath)
-  const blob = new Blob([bytes], { type: 'application/pdf' })
+  const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
 
   try {
@@ -29,7 +29,7 @@ async function extractReferencesText(filePath: string): Promise<string> {
     for (let i = startPage; i <= totalPages; i++) {
       const page = await doc.getPage(i)
       const content = await page.getTextContent()
-      text += content.items.map((item: { str?: string }) => item.str || '').join(' ') + '\n'
+      text += content.items.map((item) => ('str' in item ? item.str : '')).join(' ') + '\n'
     }
 
     return text.slice(0, 8000)

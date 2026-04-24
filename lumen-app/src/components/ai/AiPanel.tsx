@@ -6,7 +6,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { chatWithAI, PROVIDERS, type ChatMessage, type ImageData } from '../../services/ai'
 import { getAiConfig } from '../../services/ai-config'
-import { Send, X, Loader2, Square, ImageIcon } from 'lucide-react'
+import { Send, X, Loader2, Square } from 'lucide-react'
 
 interface AiPanelProps {
   paperTitle: string

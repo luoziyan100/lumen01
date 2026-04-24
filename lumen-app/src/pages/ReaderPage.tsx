@@ -33,7 +33,7 @@ export function ReaderPage() {
         const paper = await getPaper(id)
         const bytes = await loadPdfData(paper.file_path)
         if (cancelled) return
-        const blob = new Blob([bytes], { type: 'application/pdf' })
+        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' })
         const url = URL.createObjectURL(blob)
         setPdfUrl(url)
         setFileName(paper.title)

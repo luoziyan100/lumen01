@@ -18,6 +18,7 @@ export function TranslatePopover({ text, x, y, onClose }: TranslatePopoverProps)
   const [translation, setTranslation] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [containerWidth, setContainerWidth] = useState(800)
   const popoverRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -44,6 +45,12 @@ export function TranslatePopover({ text, x, y, onClose }: TranslatePopoverProps)
   }, [text])
 
   useEffect(() => {
+    if (popoverRef.current?.parentElement) {
+      setContainerWidth(popoverRef.current.parentElement.clientWidth)
+    }
+  }, [])
+
+  useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         onClose()
@@ -63,7 +70,7 @@ export function TranslatePopover({ text, x, y, onClose }: TranslatePopoverProps)
       onMouseUp={(e) => e.stopPropagation()}
       className="absolute rounded-[var(--radius-md)] border border-sand"
       style={{
-        left: Math.max(8, Math.min(x - width / 2, (popoverRef.current?.parentElement?.clientWidth ?? 800) - width - 8)),
+        left: Math.max(8, Math.min(x - width / 2, containerWidth - width - 8)),
         top: y - 8,
         transform: 'translateY(-100%)',
         width,
