@@ -399,7 +399,7 @@ ${paperList}
                 <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div
                     className={`max-w-[85%] px-4 py-3 rounded-[var(--radius-md)] t-body-sm whitespace-pre-wrap leading-relaxed ${
-                      msg.role === 'user' ? 'text-white' : 'text-ink'
+                      msg.role === 'user' ? 'text-ink' : 'text-ink'
                     }`}
                     style={{
                       background: msg.role === 'user' ? 'var(--color-indigo)' : 'var(--color-vellum)',
