@@ -7,6 +7,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { chatWithAI, PROVIDERS, type ChatMessage, type ImageData } from '../../services/ai'
 import { getAiConfig } from '../../services/ai-config'
 import { Send, X, Loader2, Square } from 'lucide-react'
+import { MarkdownContent } from '../common/MarkdownContent'
 
 interface AiPanelProps {
   paperTitle: string
@@ -146,7 +147,7 @@ export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
   return (
     <div
       className="flex flex-col border-l border-sand h-full"
-      style={{ width: 380, background: 'var(--color-paper)' }}
+      style={{ width: 440, background: 'var(--color-paper)' }}
     >
       {/* 头部 */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-sand shrink-0">
@@ -199,7 +200,7 @@ export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
       )}
 
       {/* 输入区 */}
-      <div className="px-4 py-3 border-t border-sand shrink-0">
+      <div className="px-4 py-3 shrink-0">
         {pendingImages.length > 0 && (
           <div className="flex gap-2 mb-2 flex-wrap">
             {pendingImages.map((img, i) => (
@@ -220,7 +221,7 @@ export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
           </div>
         )}
         <div
-          className="flex items-end gap-2 rounded-[var(--radius-md)] border border-sand px-3 py-2"
+          className="relative rounded-[var(--radius-lg)] border border-sand"
           style={{
             background: 'var(--color-vellum)',
             transition: 'border-color var(--dur-fast) var(--ease-out)',
@@ -232,40 +233,38 @@ export function AiPanel({ paperTitle, initialPrompt, onClose }: AiPanelProps) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder="输入问题...（可粘贴图片）"
-            rows={1}
-            className="flex-1 resize-none border-none outline-none t-body bg-transparent"
-            style={{ maxHeight: 120 }}
+            placeholder="输入问题..."
+            rows={2}
+            className="w-full resize-none border-none t-body bg-transparent px-3 pt-2.5 pb-9"
+            style={{ maxHeight: 120, outline: 'none' }}
           />
           {loading ? (
             <button
               onClick={handleStop}
-              className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] shrink-0 cursor-pointer"
+              className="absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] cursor-pointer"
               style={{
                 background: 'var(--color-danger)',
                 color: 'white',
-                transition: 'opacity var(--dur-fast) var(--ease-out)',
+                transition: 'all var(--dur-fast) var(--ease-out)',
               }}
               title="停止生成"
             >
-              <Square size={11} />
+              <Square size={12} />
             </button>
-          ) : (
+          ) : (input.trim() || pendingImages.length > 0) && (
             <button
               onClick={handleSend}
-              disabled={!input.trim() && pendingImages.length === 0}
-              className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
+              className="absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] cursor-pointer"
               style={{
                 background: 'var(--color-ember)',
                 color: 'white',
-                transition: 'opacity var(--dur-fast) var(--ease-out)',
+                transition: 'all var(--dur-fast) var(--ease-out)',
               }}
             >
-              <Send size={13} />
+              <Send size={14} />
             </button>
           )}
         </div>
-        <p className="t-caption mt-1.5 text-center">Enter 发送，Shift+Enter 换行，可粘贴图片</p>
       </div>
     </div>
   )
@@ -277,8 +276,8 @@ function MessageBubble({ message }: { message: DisplayMessage }) {
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
-        className={`max-w-[85%] px-3 py-2 rounded-[var(--radius-md)] t-body-sm whitespace-pre-wrap ${
-          isUser ? 'text-ink' : 'text-ink'
+        className={`max-w-[85%] px-3 py-2 rounded-[var(--radius-md)] text-ink ${
+          isUser ? 't-body-sm whitespace-pre-wrap' : ''
         }`}
         style={{
           background: isUser ? 'var(--color-indigo)' : 'var(--color-vellum)',
@@ -295,7 +294,7 @@ function MessageBubble({ message }: { message: DisplayMessage }) {
             ))}
           </div>
         )}
-        {message.content}
+        {isUser ? message.content : <MarkdownContent content={message.content} />}
       </div>
     </div>
   )

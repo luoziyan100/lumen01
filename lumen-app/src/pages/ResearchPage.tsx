@@ -17,7 +17,9 @@ import {
   listResearchNotes,
   type ResearchProject,
 } from '../services/research'
+import { listCollections, listCollectionPapers, type Collection } from '../services/collections'
 import { Send, Loader2, Download, Square, Plus, MessageSquare, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { MarkdownContent } from '../components/common/MarkdownContent'
 
 interface DisplayMessage {
   id: string
@@ -37,6 +39,7 @@ export function ResearchPage() {
   const [projects, setProjects] = useState<ResearchProject[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [collections, setCollections] = useState<(Collection & { paperIds: string[] })[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -44,6 +47,15 @@ export function ResearchPage() {
   useEffect(() => {
     listPapers().then(setPapers).catch(console.error)
     listResearchProjects().then(setProjects).catch(console.error)
+    listCollections().then(async (cols) => {
+      const withPapers = await Promise.all(
+        cols.map(async (c) => ({
+          ...c,
+          paperIds: await listCollectionPapers(c.id).catch(() => [] as string[]),
+        }))
+      )
+      setCollections(withPapers)
+    }).catch(console.error)
     getAiConfig().then((config: AiConfig | null) => {
       if (!config) { setModelLabel('未配置'); return }
       const prov = PROVIDERS.find((p) => p.id === config.provider)
@@ -99,13 +111,28 @@ export function ResearchPage() {
 
   const buildSystemPrompt = useCallback((): string => {
     const paperList = papers.length > 0
-      ? papers.map((p, i) => `${i + 1}. 《${p.title}》${p.authors ? ` — ${p.authors}` : ''}${p.year ? ` (${p.year})` : ''}`).join('\n')
+      ? papers.map((p, i) => `${i + 1}. [id:${p.id}]《${p.title}》${p.authors ? ` — ${p.authors}` : ''}${p.year ? ` (${p.year})` : ''}`).join('\n')
       : '（文献库为空）'
+
+    let collectionsInfo = ''
+    if (collections.length > 0) {
+      const colList = collections.map((c) => {
+        const colPapers = c.paperIds
+          .map((pid) => papers.find((p) => p.id === pid))
+          .filter(Boolean)
+          .map((p) => `《${p!.title}》`)
+        return `- "${c.name}"（${colPapers.length} 篇）：${colPapers.join('、') || '空集合'}`
+      }).join('\n')
+      collectionsInfo = `\n\n用户的论文集合（Collections）：
+${colList}
+
+当用户提到某个集合名称时，你应该知道该集合包含哪些论文，并可以针对集合内的论文进行分析。`
+    }
 
     return `你是 Lumen 深度研究助手。你的角色是帮助用户基于他们的论文库进行跨论文的深度研究。
 
 用户的文献库中有以下论文：
-${paperList}
+${paperList}${collectionsInfo}
 
 你的工作方式：
 1. 用户会告诉你他们想研究什么问题
@@ -115,14 +142,23 @@ ${paperList}
 
 使用简体中文回复。引用论文时使用《》标注。回复使用 Markdown 格式。
 当用户提出研究问题时，如果需要阅读论文内容，请说"让我来阅读相关论文..."，用户系统会自动提供论文内容。`
-  }, [papers])
+  }, [papers, collections])
 
   const extractPaperContent = useCallback(async (userText: string): Promise<string> => {
+    const textLower = userText.toLowerCase()
+
+    const collectionPaperIds = new Set<string>()
+    for (const c of collections) {
+      if (textLower.includes(c.name.toLowerCase())) {
+        c.paperIds.forEach((pid) => collectionPaperIds.add(pid))
+      }
+    }
+
     const relevantPapers = papers.filter((p) => {
+      if (collectionPaperIds.has(p.id)) return true
       const title = p.title.toLowerCase()
-      const text = userText.toLowerCase()
-      const keywords = text.split(/[\s,，。、]+/).filter((w) => w.length > 2)
-      return keywords.some((kw) => title.includes(kw)) || text.includes(p.title)
+      const keywords = textLower.split(/[\s,，。、]+/).filter((w) => w.length > 2)
+      return keywords.some((kw) => title.includes(kw)) || textLower.includes(p.title.toLowerCase())
     })
 
     const papersToRead = relevantPapers.length > 0 ? relevantPapers : papers.slice(0, 5)
@@ -151,7 +187,7 @@ ${paperList}
     }
 
     return '\n\n--- 以下是论文内容 ---\n\n' + contents.join('\n\n---\n\n')
-  }, [papers])
+  }, [papers, collections])
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
@@ -478,7 +514,6 @@ ${paperList}
                   </button>
                 )}
               </div>
-              <p className="t-caption mt-2 text-center">Enter 发送，Shift+Enter 换行，可粘贴图片</p>
 
               {projects.length > 0 && (
                 <div className="text-center mt-6">
@@ -502,7 +537,9 @@ ${paperList}
                   {messages.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div
-                        className="max-w-[85%] px-4 py-3 rounded-[var(--radius-md)] t-body-sm whitespace-pre-wrap leading-relaxed text-ink"
+                        className={`max-w-[85%] px-4 py-3 rounded-[var(--radius-md)] text-ink ${
+                          msg.role === 'user' ? 't-body-sm whitespace-pre-wrap leading-relaxed' : ''
+                        }`}
                         style={{
                           background: msg.role === 'user' ? 'var(--color-indigo)' : 'var(--color-vellum)',
                         }}
@@ -518,7 +555,11 @@ ${paperList}
                             ))}
                           </div>
                         )}
-                        {msg.content}
+                        {msg.role === 'assistant' ? (
+                          <MarkdownContent content={msg.content} />
+                        ) : (
+                          msg.content
+                        )}
                       </div>
                     </div>
                   ))}
@@ -613,7 +654,6 @@ ${paperList}
                     </button>
                   )}
                 </div>
-                <p className="t-caption mt-1.5 text-center">Enter 发送，Shift+Enter 换行，可粘贴图片</p>
               </div>
             </div>
           </>
