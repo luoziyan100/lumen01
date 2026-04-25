@@ -331,9 +331,49 @@ ${paperList}
       )}
 
       {/* 主聊天区 */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
+        {/* 水彩背景装饰 */}
+        <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+          <div
+            className="absolute"
+            style={{
+              width: 600,
+              height: 600,
+              top: '-10%',
+              right: '-8%',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, oklch(0.90 0.04 155 / 0.25) 0%, oklch(0.92 0.03 155 / 0.10) 40%, transparent 70%)',
+              filter: 'blur(40px)',
+            }}
+          />
+          <div
+            className="absolute"
+            style={{
+              width: 500,
+              height: 500,
+              bottom: '-5%',
+              left: '-5%',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, oklch(0.88 0.05 158 / 0.20) 0%, oklch(0.91 0.03 158 / 0.08) 45%, transparent 70%)',
+              filter: 'blur(50px)',
+            }}
+          />
+          <div
+            className="absolute"
+            style={{
+              width: 350,
+              height: 350,
+              top: '35%',
+              left: '30%',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, oklch(0.92 0.025 150 / 0.15) 0%, transparent 65%)',
+              filter: 'blur(35px)',
+            }}
+          />
+        </div>
+
         {/* 头部 */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-sand shrink-0">
+        <div className="flex items-center justify-between px-6 py-3 border-b border-sand shrink-0 relative z-10" style={{ background: 'var(--color-paper)', opacity: 0.95 }}>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowHistory(!showHistory)}
@@ -371,149 +411,213 @@ ${paperList}
           </div>
         </div>
 
-        {/* 消息区域 */}
-        <div className="flex-1 overflow-auto px-6 py-4">
-          <div className="max-w-3xl mx-auto">
-            {messages.length === 0 && !loading && (
-              <div className="flex flex-col items-center justify-center h-full gap-3 text-center py-24">
-                <p className="t-body text-ink">告诉我你想研究什么</p>
-                <p className="t-body-sm text-ink-mute max-w-md">
-                  我会从你的文献库中找到相关论文，阅读它们，然后为你做跨论文的综合分析。
+        {/* 空状态：居中输入（Claude Cowork 风格） */}
+        {messages.length === 0 && !loading ? (
+          <div className="flex-1 flex flex-col items-center px-6 relative z-10" style={{ justifyContent: 'center', marginTop: '-30%' }}>
+            <div className="w-full" style={{ maxWidth: 640 }}>
+              <div className="text-center mb-8">
+                <h2 className="t-display-md text-ink mb-2">深度研究</h2>
+                <p className="t-body text-ink-mute">
+                  告诉我你想研究什么，我会从文献库中找到相关论文进行跨论文综合分析
                 </p>
                 {papers.length > 0 && (
-                  <p className="t-caption mt-2">文献库中有 {papers.length} 篇论文可供研究</p>
+                  <p className="t-caption mt-3">文献库中有 {papers.length} 篇论文可供研究</p>
                 )}
-                {projects.length > 0 && (
+              </div>
+
+              {pendingImages.length > 0 && (
+                <div className="flex gap-2 mb-3 flex-wrap">
+                  {pendingImages.map((img, i) => (
+                    <div key={i} className="relative group">
+                      <img
+                        src={`data:${img.mediaType};base64,${img.base64}`}
+                        className="h-20 rounded-[var(--radius-sm)] border border-sand object-cover"
+                      />
+                      <button
+                        onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
+                        className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center rounded-full text-white text-[10px] opacity-0 group-hover:opacity-100 cursor-pointer"
+                        style={{ background: 'var(--color-danger)', transition: 'opacity var(--dur-fast) var(--ease-out)' }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div
+                className="relative rounded-[var(--radius-lg)] border border-sand"
+                style={{
+                  background: 'var(--color-paper)',
+                  boxShadow: 'var(--shadow-2)',
+                  transition: 'border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out)',
+                }}
+              >
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  placeholder="例如：帮我分析这些论文在 AI Agent 架构设计上的共识和分歧..."
+                  rows={3}
+                  className="w-full resize-none border-none t-body bg-transparent px-4 pt-3 pb-12"
+                  style={{ maxHeight: 160, outline: 'none' }}
+                />
+                {(input.trim() || pendingImages.length > 0) && (
                   <button
-                    onClick={() => setShowHistory(true)}
-                    className="t-caption mt-1 text-indigo cursor-pointer hover:underline"
+                    onClick={handleSend}
+                    className="absolute bottom-2.5 right-2.5 w-10 h-10 flex items-center justify-center rounded-[var(--radius-md)] cursor-pointer"
+                    style={{
+                      background: 'var(--color-ember)',
+                      color: 'white',
+                      transition: 'all var(--dur-fast) var(--ease-out)',
+                    }}
                   >
-                    查看 {projects.length} 条研究历史
+                    <Send size={18} />
                   </button>
                 )}
               </div>
-            )}
+              <p className="t-caption mt-2 text-center">Enter 发送，Shift+Enter 换行，可粘贴图片</p>
 
-            <div className="flex flex-col gap-4">
-              {messages.map((msg) => (
-                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div
-                    className={`max-w-[85%] px-4 py-3 rounded-[var(--radius-md)] t-body-sm whitespace-pre-wrap leading-relaxed ${
-                      msg.role === 'user' ? 'text-ink' : 'text-ink'
-                    }`}
-                    style={{
-                      background: msg.role === 'user' ? 'var(--color-indigo)' : 'var(--color-vellum)',
-                    }}
+              {projects.length > 0 && (
+                <div className="text-center mt-6">
+                  <button
+                    onClick={() => setShowHistory(true)}
+                    className="t-caption text-ink-mute cursor-pointer hover:text-ink"
+                    style={{ transition: 'color var(--dur-fast) var(--ease-out)' }}
                   >
-                    {msg.images && msg.images.length > 0 && (
-                      <div className="flex gap-1.5 mb-2 flex-wrap">
-                        {msg.images.map((img, i) => (
-                          <img
-                            key={i}
-                            src={`data:${img.mediaType};base64,${img.base64}`}
-                            className="max-h-40 rounded-[var(--radius-sm)] object-cover"
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {msg.content}
-                  </div>
-                </div>
-              ))}
-
-              {loading && (
-                <div className="flex items-center gap-2 text-ink-mute py-2">
-                  <Loader2 size={14} className="animate-spin" />
-                  <span className="t-body-sm">正在阅读论文并分析...</span>
+                    查看 {projects.length} 条研究历史
+                  </button>
                 </div>
               )}
             </div>
-
-            <div ref={bottomRef} />
           </div>
-        </div>
+        ) : (
+          <>
+            {/* 消息区域 */}
+            <div className="flex-1 overflow-auto px-6 py-4 relative z-10">
+              <div className="mx-auto" style={{ maxWidth: 720 }}>
+                <div className="flex flex-col gap-4">
+                  {messages.map((msg) => (
+                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div
+                        className="max-w-[85%] px-4 py-3 rounded-[var(--radius-md)] t-body-sm whitespace-pre-wrap leading-relaxed text-ink"
+                        style={{
+                          background: msg.role === 'user' ? 'var(--color-indigo)' : 'var(--color-vellum)',
+                        }}
+                      >
+                        {msg.images && msg.images.length > 0 && (
+                          <div className="flex gap-1.5 mb-2 flex-wrap">
+                            {msg.images.map((img, i) => (
+                              <img
+                                key={i}
+                                src={`data:${img.mediaType};base64,${img.base64}`}
+                                className="max-h-40 rounded-[var(--radius-sm)] object-cover"
+                              />
+                            ))}
+                          </div>
+                        )}
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))}
 
-        {/* 错误 */}
-        {error && (
-          <div
-            className="mx-6 mb-2 p-2.5 rounded-[var(--radius-sm)] t-caption max-w-3xl mx-auto"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
-          >
-            {error}
-          </div>
-        )}
+                  {loading && (
+                    <div className="flex items-center gap-2 text-ink-mute py-2">
+                      <Loader2 size={14} className="animate-spin" />
+                      <span className="t-body-sm">正在阅读论文并分析...</span>
+                    </div>
+                  )}
+                </div>
 
-        {/* 输入区 */}
-        <div className="px-6 py-4 border-t border-sand shrink-0">
-          <div className="max-w-3xl mx-auto">
-            {pendingImages.length > 0 && (
-              <div className="flex gap-2 mb-2 flex-wrap">
-                {pendingImages.map((img, i) => (
-                  <div key={i} className="relative group">
-                    <img
-                      src={`data:${img.mediaType};base64,${img.base64}`}
-                      className="h-20 rounded-[var(--radius-sm)] border border-sand object-cover"
-                    />
-                    <button
-                      onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
-                      className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center rounded-full text-white text-[10px] opacity-0 group-hover:opacity-100 cursor-pointer"
-                      style={{ background: 'var(--color-danger)', transition: 'opacity var(--dur-fast) var(--ease-out)' }}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                <div ref={bottomRef} />
+              </div>
+            </div>
+
+            {/* 错误 */}
+            {error && (
+              <div
+                className="mx-6 mb-2 p-2.5 rounded-[var(--radius-sm)] t-caption relative z-10"
+                style={{ maxWidth: 720, margin: '0 auto 8px', background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+              >
+                {error}
               </div>
             )}
-            <div
-              className="flex items-end gap-2 rounded-[var(--radius-md)] border border-sand px-4 py-3"
-              style={{
-                background: 'var(--color-vellum)',
-                transition: 'border-color var(--dur-fast) var(--ease-out)',
-              }}
-            >
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                placeholder="例如：帮我分析这些论文在 AI Agent 架构设计上的共识和分歧（可粘贴图片）"
-                rows={2}
-                className="flex-1 resize-none border-none outline-none t-body bg-transparent"
-                style={{ maxHeight: 160 }}
-              />
-              {loading ? (
-                <button
-                  onClick={handleStop}
-                  className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] shrink-0 cursor-pointer"
+
+            {/* 输入区（对话中） */}
+            <div className="px-6 py-4 shrink-0 relative z-10">
+              <div className="mx-auto" style={{ maxWidth: 720 }}>
+                {pendingImages.length > 0 && (
+                  <div className="flex gap-2 mb-2 flex-wrap">
+                    {pendingImages.map((img, i) => (
+                      <div key={i} className="relative group">
+                        <img
+                          src={`data:${img.mediaType};base64,${img.base64}`}
+                          className="h-20 rounded-[var(--radius-sm)] border border-sand object-cover"
+                        />
+                        <button
+                          onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
+                          className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center rounded-full text-white text-[10px] opacity-0 group-hover:opacity-100 cursor-pointer"
+                          style={{ background: 'var(--color-danger)', transition: 'opacity var(--dur-fast) var(--ease-out)' }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div
+                  className="relative rounded-[var(--radius-lg)] border border-sand"
                   style={{
-                    background: 'var(--color-danger)',
-                    color: 'white',
-                    transition: 'opacity var(--dur-fast) var(--ease-out)',
-                  }}
-                  title="停止生成"
-                >
-                  <Square size={12} />
-                </button>
-              ) : (
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim() && pendingImages.length === 0}
-                  className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] shrink-0 cursor-pointer disabled:opacity-30 disabled:cursor-default"
-                  style={{
-                    background: 'var(--color-ember)',
-                    color: 'white',
-                    transition: 'opacity var(--dur-fast) var(--ease-out)',
+                    background: 'var(--color-paper)',
+                    boxShadow: 'var(--shadow-2)',
+                    transition: 'border-color var(--dur-fast) var(--ease-out)',
                   }}
                 >
-                  <Send size={14} />
-                </button>
-              )}
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
+                    placeholder="继续提问...（可粘贴图片）"
+                    rows={3}
+                    className="w-full resize-none border-none t-body bg-transparent px-4 pt-3 pb-10"
+                    style={{ maxHeight: 180, outline: 'none' }}
+                  />
+                  {loading ? (
+                    <button
+                      onClick={handleStop}
+                      className="absolute bottom-2.5 right-2.5 w-10 h-10 flex items-center justify-center rounded-[var(--radius-md)] cursor-pointer"
+                      style={{
+                        background: 'var(--color-danger)',
+                        color: 'white',
+                        transition: 'all var(--dur-fast) var(--ease-out)',
+                      }}
+                      title="停止生成"
+                    >
+                      <Square size={16} />
+                    </button>
+                  ) : (input.trim() || pendingImages.length > 0) && (
+                    <button
+                      onClick={handleSend}
+                      className="absolute bottom-2.5 right-2.5 w-10 h-10 flex items-center justify-center rounded-[var(--radius-md)] cursor-pointer"
+                      style={{
+                        background: 'var(--color-ember)',
+                        color: 'white',
+                        transition: 'all var(--dur-fast) var(--ease-out)',
+                      }}
+                    >
+                      <Send size={18} />
+                    </button>
+                  )}
+                </div>
+                <p className="t-caption mt-1.5 text-center">Enter 发送，Shift+Enter 换行，可粘贴图片</p>
+              </div>
             </div>
-            <p className="t-caption mt-1.5 text-center">Enter 发送，Shift+Enter 换行，可粘贴图片</p>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </div>
   )
