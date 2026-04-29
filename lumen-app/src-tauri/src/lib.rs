@@ -59,6 +59,7 @@ pub fn run() {
             commands::citations::list_paper_citations,
             commands::citations::delete_citation,
             commands::citations::delete_paper_citations,
+            commands::search::search_papers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

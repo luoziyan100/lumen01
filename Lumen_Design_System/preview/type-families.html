@@ -1,0 +1,54 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&family=JetBrains+Mono:wght@400;500&family=Ma+Shan+Zheng&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-webfont@1.7.0/style.css" rel="stylesheet">
+<link rel="stylesheet" href="_base.css">
+<style>
+  .fam { padding: 16px 18px; border: 1px solid var(--sand); border-radius: 8px; background: var(--vellum); display: grid; grid-template-columns: 96px 1fr; gap: 16px; align-items: center; }
+  .lbl { font-size:10px;font-weight:600;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-mute); line-height: 1.4; }
+  .lbl .cn { display: block; color: var(--ink-soft); margin-top: 4px; font-weight: 500; letter-spacing: .04em; text-transform: none; font-size: 11px; }
+  .body { min-width: 0; }
+  .spec { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-mute); margin-top: 6px; }
+  .sample { letter-spacing: -.005em; }
+</style></head>
+<body>
+<div class="card compact">
+  <div class="fam">
+    <div class="lbl">Sans · UI<span class="cn">界面字</span></div>
+    <div class="body">
+      <div class="sample" style="font:500 22px/1.2 'Inter Tight',sans-serif;letter-spacing:-.01em">Inter Tight — Library, Filters</div>
+      <div class="spec">--font-sans · 400 · 500 · 600 · 700</div>
+    </div>
+  </div>
+  <div class="fam">
+    <div class="lbl">Serif · Reading<span class="cn">阅读字 · 西文</span></div>
+    <div class="body">
+      <div class="sample" style="font:400 22px/1.3 'Source Serif 4',serif">Source Serif 4 — body & quotations</div>
+      <div class="spec">--font-serif · paper body, summaries, citations</div>
+    </div>
+  </div>
+  <div class="fam">
+    <div class="lbl">Kai · Reading<span class="cn">阅读字 · 中文</span></div>
+    <div class="body">
+      <div class="sample" style="font:400 22px/1.4 'LXGW WenKai',Kaiti,serif">霞鹜文楷 — 思而知之，学而问之</div>
+      <div class="spec">--font-serif (CN fallback) · 楷体阅读，论文正文</div>
+    </div>
+  </div>
+  <div class="fam">
+    <div class="lbl">Display 颜体<span class="cn">品牌·标题</span></div>
+    <div class="body">
+      <div class="sample" style="font:400 30px/1.1 'Ma Shan Zheng',cursive;color:var(--ink)">明灯·照夜读</div>
+      <div class="spec">--font-kai-display · 仅用于品牌、引文、标题节奏点</div>
+    </div>
+  </div>
+  <div class="fam">
+    <div class="lbl">Mono · Meta<span class="cn">元数据</span></div>
+    <div class="body">
+      <div class="sample" style="font:400 18px/1.2 'JetBrains Mono',monospace">arXiv:2309.01234 · ⌘K · 14:08</div>
+      <div class="spec">--font-mono · 400 · 500</div>
+    </div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .paper-card { background: var(--vellum); border: 1px solid var(--sand); border-radius: 8px; padding: 16px 18px; display:flex; flex-direction:column; gap: 10px; transition: all 180ms cubic-bezier(.2,.6,.2,1); }
+  .paper-card.hover { border-color: var(--ink-mute); }
+  .paper-card.selected { border-color: var(--ember); box-shadow: -2px 0 0 var(--ember); }
+  .title { font: 500 15px/1.35 'Inter Tight',sans-serif; color: var(--ink); letter-spacing:-.005em; }
+  .meta { font: 500 12px/1.4 'Inter Tight',sans-serif; letter-spacing: .02em; color: var(--ink-mute); }
+  .excerpt { font: 400 13px/1.55 'Source Serif 4',serif; color: var(--ink-soft); }
+  .tags { display:flex; gap: 6px; }
+  .tag { font-size: 11px; padding: 2px 8px; background: var(--paper-deep); color: var(--ink-soft); border-radius: 9999px; border: 1px solid var(--sand); font-weight: 500; }
+  .tag.moss { background: var(--moss-tint); color: var(--moss); border-color: transparent; }
+  .state-label { font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute); }
+</style></head>
+<body>
+<div class="card compact">
+  <div class="cols">
+    <div>
+      <div class="state-label" style="margin-bottom:6px">Default</div>
+      <div class="paper-card">
+        <div class="meta">Vaswani et al. · NeurIPS 2017 · arXiv:1706.03762</div>
+        <div class="title">Attention Is All You Need</div>
+        <div class="excerpt">We propose a new simple network architecture, the Transformer, based solely on attention mechanisms…</div>
+        <div class="tags"><span class="tag moss">已读</span><span class="tag">注意力</span><span class="tag">Transformer</span></div>
+      </div>
+    </div>
+    <div>
+      <div class="state-label" style="margin-bottom:6px">Selected</div>
+      <div class="paper-card selected">
+        <div class="meta">Dosovitskiy et al. · ICLR 2021</div>
+        <div class="title">An Image is Worth 16×16 Words: ViT</div>
+        <div class="excerpt">A pure transformer applied directly to sequences of image patches can perform very well on image classification…</div>
+        <div class="tags"><span class="tag">视觉</span><span class="tag">未读</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>

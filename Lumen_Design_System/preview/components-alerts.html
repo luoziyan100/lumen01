@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .alert { padding: 14px 16px; border-radius: 8px; display: flex; gap: 12px; align-items: flex-start; border: 1px solid transparent; }
+  .alert .ico { width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px; }
+  .alert .t { font: 500 13px/1.4 'Inter Tight',sans-serif; color: var(--ink); }
+  .alert .d { font: 400 12px/1.5 'Inter Tight',sans-serif; color: var(--ink-soft); margin-top: 3px; }
+  .info { background: var(--indigo-tint); }
+  .info .ico { color: var(--indigo); }
+  .success { background: var(--moss-tint); }
+  .success .ico { color: var(--moss); }
+  .warn { background: var(--warning-bg); }
+  .warn .ico { color: #7A5416; }
+  .err { background: var(--danger-bg); }
+  .err .ico { color: var(--danger); }
+</style></head>
+<body>
+<div class="card compact">
+  <div class="cols">
+    <div class="alert info">
+      <svg class="ico" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.5"/></svg>
+      <div><div class="t">正在阅读全文</div><div class="d">约 40 秒 · 可继续其它工作</div></div>
+    </div>
+    <div class="alert success">
+      <svg class="ico" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg>
+      <div><div class="t">已归档 12 篇</div><div class="d">收藏夹 · 注意力机制 · 2024</div></div>
+    </div>
+    <div class="alert warn">
+      <svg class="ico" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3ZM12 10v5M12 18v.5"/></svg>
+      <div><div class="t">文件尺寸较大</div><div class="d">12.4 MB · 可能需要几秒钟才能打开</div></div>
+    </div>
+    <div class="alert err">
+      <svg class="ico" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+      <div><div class="t">没能打开这份文件</div><div class="d">文件可能已损坏或格式不支持</div></div>
+    </div>
+  </div>
+</div>
+</body></html>

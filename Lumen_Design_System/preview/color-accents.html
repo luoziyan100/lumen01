@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .swatch { border-radius: 6px; height: 88px; position: relative; overflow: hidden; display: flex; align-items: flex-end; padding: 10px; }
+  .swatch .label { display: flex; flex-direction: column; gap: 2px; color: #fff; font-size: 12px; font-weight: 500; }
+  .swatch .hex { font-family: var(--font-mono); font-size: 10px; opacity: .8; }
+  .swatch.lt { color: var(--ink); }
+  .swatch.lt .label { color: var(--ink); }
+  .grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1.4fr 1fr 1fr 1.4fr 1fr 1fr; gap: 8px; }
+  .grid > div:nth-child(3n+1) { border: 1px solid rgba(42,36,30,.06); }
+</style></head>
+<body>
+<div class="card">
+  <div class="grid">
+    <div class="swatch" style="background:#B85C3B"><div class="label">ember<span class="hex">#B85C3B</span></div></div>
+    <div class="swatch lt" style="background:#D68563"><div class="label">ember-soft<span class="hex">#D68563</span></div></div>
+    <div class="swatch lt" style="background:#F4E3D9"><div class="label">ember-tint<span class="hex">#F4E3D9</span></div></div>
+
+    <div class="swatch" style="background:#5F6B4A"><div class="label">moss<span class="hex">#5F6B4A</span></div></div>
+    <div class="swatch lt" style="background:#8B9673"><div class="label">moss-soft<span class="hex">#8B9673</span></div></div>
+    <div class="swatch lt" style="background:#E5E8DD"><div class="label">moss-tint<span class="hex">#E5E8DD</span></div></div>
+
+    <div class="swatch" style="background:#3A4A5E"><div class="label">indigo<span class="hex">#3A4A5E</span></div></div>
+    <div class="swatch lt" style="background:#6B7B8F"><div class="label">indigo-soft<span class="hex">#6B7B8F</span></div></div>
+    <div class="swatch lt" style="background:#DDE3EB"><div class="label">indigo-tint<span class="hex">#DDE3EB</span></div></div>
+  </div>
+</div>
+</body></html>

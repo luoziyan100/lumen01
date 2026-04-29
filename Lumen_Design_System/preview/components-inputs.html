@@ -1,0 +1,44 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .grp { display:flex; flex-direction:column; gap: 10px; }
+  .lbl { font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute); }
+  .field { display:flex; align-items:center; gap: 8px; padding: 10px 14px; background: var(--vellum); border: 1px solid var(--sand); border-radius: 4px; font: 400 14px/1 'Inter Tight',sans-serif; color: var(--ink); }
+  .field.focus { border-color: var(--ember); box-shadow: 0 0 0 3px var(--focus-ring); background: var(--paper); }
+  .field input { border: none; outline: none; background: transparent; flex: 1; font: inherit; color: var(--ink); }
+  .field .icon { width: 14px; height: 14px; color: var(--ink-mute); }
+  .placeholder { color: var(--ink-mute); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+</style></head>
+<body>
+<div class="card compact">
+  <div class="cols">
+    <div class="grp">
+      <div class="lbl">Search</div>
+      <div class="field">
+        <svg class="icon" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span class="placeholder">搜索全库 · 关键词、语义、DOI</span>
+      </div>
+    </div>
+    <div class="grp">
+      <div class="lbl">Focused</div>
+      <div class="field focus">
+        <svg class="icon" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>
+        <input value="注意力机制 in vision transformers" />
+      </div>
+    </div>
+    <div class="grp">
+      <div class="lbl">Textarea</div>
+      <div class="field" style="align-items:flex-start;padding-top:10px">
+        <span class="placeholder" style="line-height:1.5">告诉 Lumen 你在研究什么。它会从文献库中寻找相关论文，阅读、对比、回答。</span>
+      </div>
+    </div>
+    <div class="grp">
+      <div class="lbl">Readonly</div>
+      <div class="field" style="color:var(--ink-soft);background:var(--paper-deep)">
+        <span style="font-family:var(--font-mono);font-size:12px">arXiv:1706.03762</span>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>

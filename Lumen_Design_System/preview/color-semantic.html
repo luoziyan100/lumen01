@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .row2 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .tile { border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--sand); }
+  .tile .dot { width: 28px; height: 28px; border-radius: 50%; }
+  .tile .t { font-size: 12px; color: var(--ink-soft); font-weight: 500; }
+  .tile .m { font-family: var(--font-mono); font-size: 10px; color: var(--ink-mute); }
+</style></head>
+<body>
+<div class="card compact">
+  <div class="row2">
+    <div class="tile" style="background:#E5E8DD">
+      <div class="dot" style="background:#5F6B4A"></div>
+      <div class="t">Success · 成功</div>
+      <div class="m">--success #5F6B4A</div>
+    </div>
+    <div class="tile" style="background:#F5ECD7">
+      <div class="dot" style="background:#C68A2C"></div>
+      <div class="t">Warning · 警示</div>
+      <div class="m">--warning #C68A2C</div>
+    </div>
+    <div class="tile" style="background:#F1DCD7">
+      <div class="dot" style="background:#A33A2E"></div>
+      <div class="t">Danger · 错误</div>
+      <div class="m">--danger #A33A2E</div>
+    </div>
+    <div class="tile" style="background:#DDE3EB">
+      <div class="dot" style="background:#3A4A5E"></div>
+      <div class="t">Info · 信息</div>
+      <div class="m">--indigo #3A4A5E</div>
+    </div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .grp { display:flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .lbl { font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute); width: 72px; }
+  .tag { font: 500 12px/1 'Inter Tight',sans-serif; padding: 4px 10px; border-radius: 9999px; border: 1px solid var(--sand); background: var(--paper-deep); color: var(--ink-soft); display: inline-flex; align-items: center; gap: 5px; }
+  .tag.ember { background: var(--ember-tint); color: #8A3F24; border-color: transparent; }
+  .tag.moss { background: var(--moss-tint); color: var(--moss); border-color: transparent; }
+  .tag.indigo { background: var(--indigo-tint); color: var(--indigo); border-color: transparent; }
+  .tag.warn { background: var(--warning-bg); color: #7A5416; border-color: transparent; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .chip { font: 400 12px/1 var(--font-mono); padding: 4px 8px; background: var(--paper-deep); color: var(--ink-soft); border-radius: 4px; border: 1px solid var(--sand); }
+  .kbd { font: 500 11px/1 var(--font-mono); padding: 3px 6px; background: var(--vellum); border: 1px solid var(--sand); border-bottom-width: 2px; border-radius: 4px; color: var(--ink-soft); }
+</style></head>
+<body>
+<div class="card compact">
+  <div class="grp"><div class="lbl">Tags</div>
+    <span class="tag">注意力</span>
+    <span class="tag">Transformer</span>
+    <span class="tag moss"><span class="dot" style="background:currentColor"></span>已读</span>
+    <span class="tag ember">精选</span>
+    <span class="tag indigo">引用 128</span>
+    <span class="tag warn">待读</span>
+  </div>
+  <div class="grp"><div class="lbl">Meta</div>
+    <span class="chip">arXiv:1706.03762</span>
+    <span class="chip">DOI:10.1038/s41586-021-03819-2</span>
+    <span class="chip">NeurIPS 2017</span>
+  </div>
+  <div class="grp"><div class="lbl">Keys</div>
+    <span class="kbd">⌘</span><span class="kbd">K</span>
+    <span style="color:var(--ink-mute);font-size:12px">打开全局搜索</span>
+    <span style="width:16px"></span>
+    <span class="kbd">⌘</span><span class="kbd">⇧</span><span class="kbd">R</span>
+    <span style="color:var(--ink-mute);font-size:12px">新建深度研究</span>
+  </div>
+</div>
+</body></html>

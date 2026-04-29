@@ -9,3 +9,4 @@ pub mod collections;
 pub mod annotations;
 pub mod research;
 pub mod citations;
+pub mod search;

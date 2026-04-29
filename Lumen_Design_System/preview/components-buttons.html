@@ -1,0 +1,43 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_base.css">
+<style>
+  .b { font: 500 13px/1 'Inter Tight',sans-serif; padding: 9px 14px; border-radius: 4px; border: 1px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 180ms cubic-bezier(.2,.6,.2,1); }
+  .primary { background: var(--ember); color: #fff; }
+  .primary:hover { background: #A8502F; }
+  .secondary { background: var(--vellum); color: var(--ink); border-color: var(--sand); }
+  .secondary:hover { background: var(--sand); border-color: var(--ink-mute); }
+  .ghost { background: transparent; color: var(--ink-soft); }
+  .ghost:hover { background: var(--sand); color: var(--ink); }
+  .danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+  .danger:hover { background: var(--danger-bg); }
+  .disabled { opacity: .4; cursor: not-allowed; }
+  .lg { padding: 12px 18px; font-size: 14px; }
+  .sm { padding: 6px 10px; font-size: 12px; }
+  .grp { display:flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .lbl { font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute); width: 80px; }
+</style></head>
+<body>
+<div class="card compact">
+  <div class="grp"><div class="lbl">Primary</div>
+    <button class="b primary">归档</button>
+    <button class="b primary">开始深度研究</button>
+    <button class="b primary disabled">处理中…</button>
+  </div>
+  <div class="grp"><div class="lbl">Secondary</div>
+    <button class="b secondary">取消</button>
+    <button class="b secondary">导入 PDF</button>
+    <button class="b secondary">查看全部</button>
+  </div>
+  <div class="grp"><div class="lbl">Ghost</div>
+    <button class="b ghost">继续</button>
+    <button class="b ghost">更多</button>
+    <button class="b ghost">撤销</button>
+  </div>
+  <div class="grp"><div class="lbl">Sizes</div>
+    <button class="b primary sm">Small</button>
+    <button class="b primary">Base</button>
+    <button class="b primary lg">Large</button>
+    <button class="b danger">删除论文</button>
+  </div>
+</div>
+</body></html>
