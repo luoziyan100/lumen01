@@ -4,11 +4,12 @@
  * [POS]: pages 模块的深度研究页面，LUI 聊天界面，挂载在 /research 路由
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { chatWithAI, type ChatMessage, type ImageData } from '../services/ai'
+import { type ChatMessage, type ImageData } from '../services/ai'
 import { listPapers, type Paper } from '../services/papers'
 import { loadPdfData } from '../services/files'
 import { getAiConfig, type AiConfig } from '../services/ai-config'
 import { PROVIDERS } from '../services/ai'
+import { runResearchAgent } from '../services/research-agent'
 import {
   createResearchProject,
   listResearchProjects,
@@ -18,7 +19,6 @@ import {
   type ResearchProject,
 } from '../services/research'
 import { listCollections, listCollectionPapers, type Collection } from '../services/collections'
-import { searchPapers, formatSearchResults } from '../services/search'
 import { Send, Loader2, Download, Square, Plus, MessageSquare, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { MarkdownContent } from '../components/common/MarkdownContent'
 
@@ -137,21 +137,10 @@ ${paperList}${collectionsInfo}
 
 你的能力：
 1. **文献库分析**：阅读用户文献库中的论文，进行综合分析和对比
-2. **学术搜索**：你可以搜索 OpenAlex + arXiv 学术数据库来查找论文
+2. **学术搜索**：你可以搜索 OpenAlex + arXiv + Semantic Scholar + Crossref 学术数据库来查找论文
 3. **跨论文研究**：综合多篇论文的观点，产出结构化的研究分析
 
-## 搜索工具
-
-当你需要搜索学术论文时，在回复中使用以下格式调用搜索工具：
-
-[SEARCH: 搜索关键词]
-
-规则：
-- 搜索关键词请使用英文，因为 OpenAlex + arXiv 是英文数据库
-- 每次回复最多调用一次搜索
-- 调用搜索时，在 [SEARCH: ...] 之前可以简短说明你要搜什么，但 [SEARCH: ...] 之后不要写其他内容，系统会自动执行搜索并将结果返回给你
-- 当用户的问题可能需要搜索外部论文时（比如用户要求搜索、查找、推荐论文，或者文献库中没有相关论文），你应该主动使用搜索工具
-- 不要编造搜索结果，必须通过 [SEARCH: ...] 获取真实数据
+外部学术搜索由系统内部的 Search Agent 负责规划和执行。你不要输出工具调用语法，也不要编造没有出现在上下文中的论文。
 
 使用简体中文回复。引用论文时使用《》标注。回复使用 Markdown 格式。`
   }, [papers, collections])
@@ -252,46 +241,13 @@ ${paperList}${collectionsInfo}
         },
       ]
 
-      let reply = await chatWithAI(history, undefined, controller.signal)
-
-      const searchMatch = reply.match(/\[SEARCH:\s*(.+?)\]/)
-      console.log('[Lumen] AI reply (first 200):', reply.slice(0, 200))
-      console.log('[Lumen] Search match:', searchMatch?.[0], '| query:', searchMatch?.[1])
-      if (searchMatch) {
-        const query = searchMatch[1].trim()
-        const preSearchText = reply.slice(0, searchMatch.index).trim()
-
-        if (preSearchText) {
-          setMessages((prev) => [
-            ...prev,
-            { id: crypto.randomUUID(), role: 'assistant', content: preSearchText + `\n\n*正在搜索「${query}」...*` },
-          ])
-        }
-
-        let searchContext: string
-        try {
-          const { total, results } = await searchPapers(query, 8)
-          const formatted = formatSearchResults(results)
-          searchContext = `搜索工具返回结果（OpenAlex + arXiv，共 ${total} 篇，展示前 ${results.length} 篇）：\n\n${formatted}`
-        } catch (e) {
-          searchContext = `搜索工具出错：${String(e)}`
-        }
-
-        history.push(
-          { role: 'assistant' as const, content: reply },
-          { role: 'user' as const, content: `[搜索结果]\n${searchContext}\n\n请根据以上搜索结果回答用户的问题。用 Markdown 格式整理结果，包含标题、作者、年份、引用数、摘要要点。如果有开放获取的 PDF 链接，也请标注。` },
-        )
-
-        reply = await chatWithAI(history, undefined, controller.signal)
-
-        if (preSearchText) {
-          setMessages((prev) => {
-            const updated = [...prev]
-            updated[updated.length - 1] = { ...updated[updated.length - 1], content: preSearchText }
-            return updated
-          })
-        }
-      }
+      const agentResult = await runResearchAgent({
+        userText: text,
+        history,
+        recentMessages: messages.map((m) => ({ role: m.role, content: m.content, images: m.images }) as ChatMessage),
+        signal: controller.signal,
+      })
+      const reply = agentResult.reply
 
       await addResearchNote(projectId, 'assistant', reply)
 

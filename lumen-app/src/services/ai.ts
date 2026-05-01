@@ -4,6 +4,7 @@
  * [POS]: services 层的 AI 对话，支持多提供商 API / 图片 / 中断，被 AI 面板和翻译浮层消费
  */
 import { getAiConfig } from './ai-config'
+import { hasTauriInvoke } from './tauri'
 
 export interface ImageData {
   base64: string
@@ -33,6 +34,14 @@ export const PROVIDERS: ProviderDef[] = [
 const OPENAI_COMPAT_ENDPOINTS: Record<string, string> = {
   openai: 'https://api.openai.com/v1/chat/completions',
   deepseek: 'https://api.deepseek.com/chat/completions',
+}
+
+function parseCustomModelField(modelField: string): { endpoint: string | null; model: string } {
+  const parts = modelField.split('|').map((s) => s.trim()).filter(Boolean)
+  return {
+    endpoint: parts.find((p) => p.startsWith('http')) ?? null,
+    model: parts.find((p) => !p.startsWith('http')) ?? '',
+  }
 }
 
 function buildOpenAIMessages(messages: ChatMessage[]) {
@@ -128,6 +137,30 @@ async function callAnthropic(
   return data.content?.[0]?.text ?? ''
 }
 
+async function callDevAiProxy(
+  provider: string,
+  apiKey: string,
+  model: string,
+  messages: ChatMessage[],
+  endpoint?: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const res = await fetch('/api/ai/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, apiKey, model, endpoint, messages }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`AI 请求失败 (${res.status}): ${body}`)
+  }
+
+  const data = await res.json()
+  return data.content ?? ''
+}
+
 export async function chatWithAI(
   messages: ChatMessage[],
   provider?: string,
@@ -140,6 +173,18 @@ export async function chatWithAI(
 
   const model = config.default_model || PROVIDERS.find((p) => p.id === config.provider)?.modelHint || ''
 
+  if (!hasTauriInvoke()) {
+    if (config.provider === 'custom') {
+      const { endpoint, model: customModel } = parseCustomModelField(config.default_model || '')
+      if (!endpoint) {
+        throw new Error('自定义提供商需要在模型字段填写 API 端点 URL（格式：URL 或 URL|模型名）')
+      }
+      return callDevAiProxy(config.provider, config.api_key, customModel, messages, endpoint, signal)
+    }
+
+    return callDevAiProxy(config.provider, config.api_key, model, messages, undefined, signal)
+  }
+
   if (config.provider === 'anthropic') {
     return callAnthropic(config.api_key, model, messages, signal)
   }
@@ -150,10 +195,7 @@ export async function chatWithAI(
   }
 
   if (config.provider === 'custom') {
-    const modelField = config.default_model || ''
-    const parts = modelField.split('|').map((s) => s.trim())
-    const customEndpoint = parts.find((p) => p.startsWith('http'))
-    const customModel = parts.find((p) => !p.startsWith('http')) || ''
+    const { endpoint: customEndpoint, model: customModel } = parseCustomModelField(config.default_model || '')
     if (!customEndpoint) {
       throw new Error('自定义提供商需要在模型字段填写 API 端点 URL（格式：URL 或 URL|模型名）')
     }
