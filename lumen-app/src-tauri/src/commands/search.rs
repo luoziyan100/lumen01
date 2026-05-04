@@ -18,18 +18,42 @@ pub struct SearchResult {
     pub year: Option<i32>,
     pub citation_count: i32,
     pub open_access_url: Option<String>,
+    pub open_access_pdf_url: Option<String>,
+    pub open_access_landing_url: Option<String>,
     pub source_url: String,
     pub source: String,
     pub journal: Option<String>,
     pub doi: Option<String>,
+    pub published_date: Option<String>,
     pub is_top_journal: bool,
     pub quality_score: f32,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchOptions {
+    pub from_date: Option<String>,
+    pub until_date: Option<String>,
+    pub sort_mode: Option<String>,
+    pub search_mode: Option<String>,
+    pub source_hint: Option<String>,
+    pub category_preset: Option<String>,
+    pub arxiv_categories: Option<Vec<String>>,
+    pub feed_limit: Option<i32>,
+    pub include_total_count: Option<bool>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchResponse {
     pub total: i32,
     pub results: Vec<SearchResult>,
+    pub mode: Option<String>,
+    pub total_available: Option<i32>,
+    pub fetched: Option<i32>,
+    pub categories: Option<Vec<String>>,
+    pub from_date: Option<String>,
+    pub until_date: Option<String>,
 }
 
 struct JournalMarker {
@@ -284,6 +308,135 @@ fn normalize_doi(value: &str) -> String {
         .to_string()
 }
 
+fn is_iso_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(idx, ch)| idx == 4 || idx == 7 || ch.is_ascii_digit())
+}
+
+fn normalize_search_options(options: Option<SearchOptions>) -> SearchOptions {
+    let mut options = options.unwrap_or_default();
+    options.from_date = options.from_date.filter(|date| is_iso_date(date));
+    options.until_date = options.until_date.filter(|date| is_iso_date(date));
+    options.sort_mode = match options.sort_mode.as_deref() {
+        Some("newest") => Some("newest".to_string()),
+        Some("balanced") => Some("balanced".to_string()),
+        _ => Some("relevance".to_string()),
+    };
+    options.search_mode = match options.search_mode.as_deref() {
+        Some("paper_lookup") => Some("paper_lookup".to_string()),
+        Some("recent_ai_feed") => Some("recent_ai_feed".to_string()),
+        Some("arxiv_category_feed") => Some("arxiv_category_feed".to_string()),
+        _ => Some("keyword_search".to_string()),
+    };
+    options.source_hint = match options.source_hint.as_deref() {
+        Some("arxiv") => Some("arxiv".to_string()),
+        Some("openalex") => Some("openalex".to_string()),
+        Some("semantic_scholar") => Some("semantic_scholar".to_string()),
+        Some("crossref") => Some("crossref".to_string()),
+        _ => Some("all".to_string()),
+    };
+    options.category_preset = match options.category_preset.as_deref() {
+        Some("llm") => Some("llm".to_string()),
+        Some("vision") => Some("vision".to_string()),
+        Some("robotics") => Some("robotics".to_string()),
+        Some("custom") => Some("custom".to_string()),
+        Some("ai") => Some("ai".to_string()),
+        _ => None,
+    };
+    options.arxiv_categories = options.arxiv_categories.map(|categories| {
+        categories
+            .into_iter()
+            .filter(|category| {
+                let parts: Vec<&str> = category.split('.').collect();
+                parts.len() == 2
+                    && !parts[0].is_empty()
+                    && parts[1].len() == 2
+                    && parts[1].chars().all(|ch| ch.is_ascii_alphabetic())
+            })
+            .take(12)
+            .collect()
+    });
+    options.feed_limit = options.feed_limit.map(|limit| limit.clamp(1, 200));
+    options
+}
+
+fn is_newest_sort(options: &SearchOptions) -> bool {
+    options.sort_mode.as_deref() == Some("newest")
+}
+
+fn date_from_year(year: Option<i32>) -> Option<String> {
+    year.map(|year| format!("{:04}-01-01", year))
+}
+
+fn compact_date_for_arxiv(date: &str, end_of_day: bool) -> String {
+    let y = date.get(0..4).unwrap_or("1970");
+    let m = date.get(5..7).unwrap_or("01");
+    let d = date.get(8..10).unwrap_or("01");
+    format!("{}{}{}{}", y, m, d, if end_of_day { "2359" } else { "0000" })
+}
+
+fn default_arxiv_categories(preset: Option<&str>) -> Vec<String> {
+    let values: &[&str] = match preset {
+        Some("llm") => &["cs.CL", "cs.AI", "cs.LG"],
+        Some("vision") => &["cs.CV", "eess.IV", "cs.LG"],
+        Some("robotics") => &["cs.RO", "cs.AI", "cs.LG"],
+        _ => &["cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.RO", "stat.ML"],
+    };
+    values.iter().map(|value| value.to_string()).collect()
+}
+
+fn arxiv_categories_for_options(options: &SearchOptions) -> Vec<String> {
+    let explicit = options
+        .arxiv_categories
+        .clone()
+        .filter(|categories| !categories.is_empty());
+    explicit.unwrap_or_else(|| default_arxiv_categories(options.category_preset.as_deref()))
+}
+
+fn publication_date_for(result: &SearchResult) -> Option<String> {
+    result
+        .published_date
+        .clone()
+        .or_else(|| date_from_year(result.year))
+}
+
+fn publication_date_key(result: &SearchResult) -> i32 {
+    publication_date_for(result)
+        .and_then(|date| {
+            let year = date.get(0..4)?.parse::<i32>().ok()?;
+            let month = date.get(5..7)?.parse::<i32>().ok()?;
+            let day = date.get(8..10)?.parse::<i32>().ok()?;
+            Some(year * 10_000 + month * 100 + day)
+        })
+        .unwrap_or(0)
+}
+
+fn within_date_range(result: &SearchResult, options: &SearchOptions) -> bool {
+    if options.from_date.is_none() && options.until_date.is_none() {
+        return true;
+    }
+    let Some(date) = publication_date_for(result) else {
+        return false;
+    };
+    if let Some(from_date) = &options.from_date {
+        if &date < from_date {
+            return false;
+        }
+    }
+    if let Some(until_date) = &options.until_date {
+        if &date > until_date {
+            return false;
+        }
+    }
+    true
+}
+
 fn marker_matches(journal: &str, marker: &str) -> bool {
     if marker.split_whitespace().count() == 1 {
         journal == marker
@@ -377,9 +530,16 @@ fn relevance_score(result: &SearchResult, tokens: &[String]) -> f32 {
         .min(85.0)
 }
 
-fn annotate_result(mut result: SearchResult, tokens: &[String]) -> SearchResult {
+fn annotate_result(
+    mut result: SearchResult,
+    tokens: &[String],
+    options: &SearchOptions,
+) -> SearchResult {
     if let Some(doi) = &result.doi {
         result.doi = Some(normalize_doi(doi));
+    }
+    if result.published_date.is_none() {
+        result.published_date = date_from_year(result.year);
     }
     let tier = journal_tier(result.journal.as_deref());
     result.is_top_journal = tier > 0;
@@ -396,17 +556,26 @@ fn annotate_result(mut result: SearchResult, tokens: &[String]) -> SearchResult 
         .year
         .map(|year| ((year - 2000).clamp(0, 35) as f32) * 0.25)
         .unwrap_or(0.0);
+    let newest_score = ((publication_date_key(&result) - 2_000_0101).max(0) as f32) / 650.0;
     let metadata_score = if result.abstract_text.is_some() {
         3.0
     } else {
         0.0
-    } + if result.open_access_url.is_some() {
+    } + if result.open_access_pdf_url.is_some() || result.open_access_url.is_some() {
         2.0
     } else {
         0.0
     } + if result.doi.is_some() { 2.0 } else { 0.0 };
 
-    result.quality_score = search_score + tier_score + citation_score + recency_score + metadata_score;
+    result.quality_score = if is_newest_sort(options) {
+        newest_score
+            + search_score * 0.45
+            + tier_score * 0.2
+            + citation_score * 0.15
+            + metadata_score
+    } else {
+        search_score + tier_score + citation_score + recency_score + metadata_score
+    };
     result
 }
 
@@ -427,11 +596,20 @@ fn merge_result(existing: &mut SearchResult, candidate: SearchResult) {
     if existing.open_access_url.is_none() {
         existing.open_access_url = candidate.open_access_url.clone();
     }
+    if existing.open_access_pdf_url.is_none() {
+        existing.open_access_pdf_url = candidate.open_access_pdf_url.clone();
+    }
+    if existing.open_access_landing_url.is_none() {
+        existing.open_access_landing_url = candidate.open_access_landing_url.clone();
+    }
     if existing.journal.is_none() {
         existing.journal = candidate.journal.clone();
     }
     if existing.doi.is_none() {
         existing.doi = candidate.doi.clone();
+    }
+    if existing.published_date.is_none() {
+        existing.published_date = candidate.published_date.clone();
     }
     if candidate.citation_count > existing.citation_count {
         existing.citation_count = candidate.citation_count;
@@ -457,6 +635,7 @@ struct OpenAlexWork {
     #[serde(default)]
     authorships: Vec<OpenAlexAuthorship>,
     publication_year: Option<i32>,
+    publication_date: Option<String>,
     cited_by_count: Option<i32>,
     open_access: Option<OpenAlexOpenAccess>,
     primary_location: Option<OpenAlexLocation>,
@@ -518,12 +697,34 @@ fn reconstruct_abstract(inverted_index: &serde_json::Value) -> Option<String> {
     }
 }
 
-async fn search_openalex(client: &reqwest::Client, query: &str, limit: i32) -> Vec<SearchResult> {
-    let url = format!(
-        "https://api.openalex.org/works?search={}&per_page={}&sort=relevance_score:desc&mailto=zluo5820@gmail.com",
+async fn search_openalex(
+    client: &reqwest::Client,
+    query: &str,
+    limit: i32,
+    options: &SearchOptions,
+) -> Vec<SearchResult> {
+    let sort = if is_newest_sort(options) {
+        "publication_date:desc"
+    } else {
+        "relevance_score:desc"
+    };
+    let mut url = format!(
+        "https://api.openalex.org/works?search={}&per_page={}&sort={}&mailto=zluo5820@gmail.com",
         urlencoding::encode(query),
-        limit
+        limit,
+        urlencoding::encode(sort)
     );
+    let mut filters = Vec::new();
+    if let Some(from_date) = &options.from_date {
+        filters.push(format!("from_publication_date:{}", from_date));
+    }
+    if let Some(until_date) = &options.until_date {
+        filters.push(format!("to_publication_date:{}", until_date));
+    }
+    if !filters.is_empty() {
+        url.push_str("&filter=");
+        url.push_str(&urlencoding::encode(&filters.join(",")));
+    }
 
     let resp = match client
         .get(&url)
@@ -567,15 +768,32 @@ async fn search_openalex(client: &reqwest::Client, query: &str, limit: i32) -> V
         .filter_map(|w| {
             let title = w.title?;
             let id = w.id.unwrap_or_default();
-            let primary_url = w
+            let primary_landing_url = w
                 .primary_location
                 .as_ref()
                 .and_then(|l| l.landing_page_url.clone());
-            let best_oa_url = w
+            let primary_pdf_url = w
+                .primary_location
+                .as_ref()
+                .and_then(|l| l.pdf_url.clone());
+            let best_oa_pdf_url = w
                 .best_oa_location
                 .as_ref()
-                .and_then(|l| l.pdf_url.clone().or_else(|| l.landing_page_url.clone()));
-            let source_url = primary_url.clone().unwrap_or_else(|| id.clone());
+                .and_then(|l| l.pdf_url.clone());
+            let best_oa_landing_url = w
+                .best_oa_location
+                .as_ref()
+                .and_then(|l| l.landing_page_url.clone());
+            let oa_url = w.open_access.as_ref().and_then(|oa| oa.oa_url.clone());
+            let open_access_pdf_url = primary_pdf_url.or(best_oa_pdf_url);
+            let open_access_landing_url = oa_url
+                .clone()
+                .or(best_oa_landing_url)
+                .or(primary_landing_url.clone());
+            let source_url = primary_landing_url
+                .clone()
+                .or(oa_url)
+                .unwrap_or_else(|| id.clone());
             let authors = w
                 .authorships
                 .into_iter()
@@ -589,7 +807,6 @@ async fn search_openalex(client: &reqwest::Client, query: &str, limit: i32) -> V
                 .abstract_inverted_index
                 .as_ref()
                 .and_then(reconstruct_abstract);
-            let open_access_url = w.open_access.and_then(|oa| oa.oa_url).or(best_oa_url);
             let journal = w
                 .primary_location
                 .as_ref()
@@ -608,11 +825,16 @@ async fn search_openalex(client: &reqwest::Client, query: &str, limit: i32) -> V
                 authors,
                 year: w.publication_year,
                 citation_count: w.cited_by_count.unwrap_or(0),
-                open_access_url,
+                open_access_url: open_access_pdf_url.clone(),
+                open_access_pdf_url,
+                open_access_landing_url,
                 source_url,
                 source: "OpenAlex".to_string(),
                 journal,
                 doi: w.doi,
+                published_date: w
+                    .publication_date
+                    .or_else(|| date_from_year(w.publication_year)),
                 is_top_journal: false,
                 quality_score: 0.0,
             })
@@ -636,6 +858,8 @@ struct SemanticScholarPaper {
     #[serde(rename = "abstract")]
     abstract_text: Option<String>,
     year: Option<i32>,
+    #[serde(rename = "publicationDate")]
+    publication_date: Option<String>,
     #[serde(rename = "citationCount")]
     citation_count: Option<i32>,
     url: Option<String>,
@@ -668,12 +892,27 @@ async fn search_semantic_scholar(
     client: &reqwest::Client,
     query: &str,
     limit: i32,
+    options: &SearchOptions,
 ) -> Vec<SearchResult> {
-    let url = format!(
-        "https://api.semanticscholar.org/graph/v1/paper/search?query={}&limit={}&fields=paperId,title,abstract,year,citationCount,authors,url,openAccessPdf,venue,journal,externalIds",
+    let fields = "paperId,title,abstract,year,publicationDate,citationCount,authors,url,openAccessPdf,venue,journal,externalIds";
+    let mut url = format!(
+        "https://api.semanticscholar.org/graph/v1/paper/search/bulk?query={}&limit={}&fields={}",
         urlencoding::encode(query),
-        limit
+        limit,
+        urlencoding::encode(fields)
     );
+    if options.from_date.is_some() || options.until_date.is_some() {
+        let range = format!(
+            "{}:{}",
+            options.from_date.as_deref().unwrap_or(""),
+            options.until_date.as_deref().unwrap_or("")
+        );
+        url.push_str("&publicationDateOrYear=");
+        url.push_str(&urlencoding::encode(&range));
+    }
+    if is_newest_sort(options) {
+        url.push_str("&sort=publicationDate%3Adesc");
+    }
 
     let mut req = client.get(&url);
     if let Ok(api_key) = std::env::var("SEMANTIC_SCHOLAR_API_KEY") {
@@ -727,6 +966,7 @@ async fn search_semantic_scholar(
                 .as_ref()
                 .and_then(|ids| ids.get("DOI").cloned());
             let journal = p.journal.and_then(|j| j.name).or(p.venue);
+            let open_access_pdf_url = p.open_access_pdf.and_then(|pdf| pdf.url);
             Some(SearchResult {
                 id,
                 title,
@@ -734,11 +974,18 @@ async fn search_semantic_scholar(
                 authors,
                 year: p.year,
                 citation_count: p.citation_count.unwrap_or(0),
-                open_access_url: p.open_access_pdf.and_then(|pdf| pdf.url),
+                open_access_url: open_access_pdf_url.clone(),
+                open_access_pdf_url,
+                open_access_landing_url: if source_url.is_empty() {
+                    None
+                } else {
+                    Some(source_url.clone())
+                },
                 source_url,
                 source: "Semantic Scholar".to_string(),
                 journal,
                 doi,
+                published_date: p.publication_date.or_else(|| date_from_year(p.year)),
                 is_top_journal: false,
                 quality_score: 0.0,
             })
@@ -794,14 +1041,22 @@ struct CrossrefDate {
     date_parts: Vec<Vec<i32>>,
 }
 
-fn crossref_year(work: &CrossrefWork) -> Option<i32> {
+fn crossref_published_date(work: &CrossrefWork) -> Option<String> {
     work.published_print
         .as_ref()
         .or(work.published_online.as_ref())
         .or(work.published.as_ref())
         .and_then(|date| date.date_parts.first())
-        .and_then(|parts| parts.first())
-        .copied()
+        .and_then(|parts| {
+            let year = *parts.first()?;
+            let month = parts.get(1).copied().unwrap_or(1);
+            let day = parts.get(2).copied().unwrap_or(1);
+            Some(format!("{:04}-{:02}-{:02}", year, month, day))
+        })
+}
+
+fn crossref_year(work: &CrossrefWork) -> Option<i32> {
+    crossref_published_date(work).and_then(|date| date.get(0..4)?.parse::<i32>().ok())
 }
 
 fn crossref_authors(authors: Vec<CrossrefAuthor>) -> Vec<SearchAuthor> {
@@ -819,12 +1074,28 @@ fn crossref_authors(authors: Vec<CrossrefAuthor>) -> Vec<SearchAuthor> {
         .collect()
 }
 
-async fn search_crossref(client: &reqwest::Client, query: &str, limit: i32) -> Vec<SearchResult> {
-    let url = format!(
-        "https://api.crossref.org/works?query.bibliographic={}&rows={}&filter=type:journal-article&mailto=zluo5820@gmail.com",
+async fn search_crossref(
+    client: &reqwest::Client,
+    query: &str,
+    limit: i32,
+    options: &SearchOptions,
+) -> Vec<SearchResult> {
+    let mut filters = vec!["type:journal-article".to_string()];
+    if let Some(from_date) = &options.from_date {
+        filters.push(format!("from-pub-date:{}", from_date));
+    }
+    if let Some(until_date) = &options.until_date {
+        filters.push(format!("until-pub-date:{}", until_date));
+    }
+    let mut url = format!(
+        "https://api.crossref.org/works?query.bibliographic={}&rows={}&filter={}&mailto=zluo5820@gmail.com",
         urlencoding::encode(query),
-        limit
+        limit,
+        urlencoding::encode(&filters.join(","))
     );
+    if is_newest_sort(options) {
+        url.push_str("&sort=published&order=desc");
+    }
 
     let resp = match client.get(&url).send().await {
         Ok(r) => r,
@@ -867,6 +1138,7 @@ async fn search_crossref(client: &reqwest::Client, query: &str, limit: i32) -> V
                 .or_else(|| doi.as_ref().map(|d| format!("https://doi.org/{}", d)))
                 .unwrap_or_default();
             let year = crossref_year(&w);
+            let published_date = crossref_published_date(&w);
             Some(SearchResult {
                 id,
                 title,
@@ -875,10 +1147,13 @@ async fn search_crossref(client: &reqwest::Client, query: &str, limit: i32) -> V
                 year,
                 citation_count: w.is_referenced_by_count.unwrap_or(0),
                 open_access_url: None,
+                open_access_pdf_url: None,
+                open_access_landing_url: None,
                 source_url,
                 source: "Crossref".to_string(),
                 journal: w.container_title.first().cloned(),
                 doi,
+                published_date,
                 is_top_journal: false,
                 quality_score: 0.0,
             })
@@ -888,12 +1163,26 @@ async fn search_crossref(client: &reqwest::Client, query: &str, limit: i32) -> V
 
 // ---- arXiv ----
 
-async fn search_arxiv(client: &reqwest::Client, query: &str, limit: i32) -> Vec<SearchResult> {
-    let url = format!(
-        "https://export.arxiv.org/api/query?search_query=all:{}&start=0&max_results={}&sortBy=relevance",
+async fn search_arxiv(
+    client: &reqwest::Client,
+    query: &str,
+    limit: i32,
+    options: &SearchOptions,
+) -> Vec<SearchResult> {
+    let sort_by = if is_newest_sort(options) {
+        "submittedDate"
+    } else {
+        "relevance"
+    };
+    let mut url = format!(
+        "https://export.arxiv.org/api/query?search_query=all:{}&start=0&max_results={}&sortBy={}",
         urlencoding::encode(query),
-        limit
+        limit,
+        sort_by
     );
+    if is_newest_sort(options) {
+        url.push_str("&sortOrder=descending");
+    }
 
     let resp = match client.get(&url).send().await {
         Ok(r) => r,
@@ -912,6 +1201,83 @@ async fn search_arxiv(client: &reqwest::Client, query: &str, limit: i32) -> Vec<
     };
 
     parse_arxiv_xml(&body)
+        .into_iter()
+        .filter(|result| within_date_range(result, options))
+        .collect()
+}
+
+async fn search_arxiv_feed(
+    client: &reqwest::Client,
+    categories: &[String],
+    from_date: &str,
+    until_date: &str,
+    limit: i32,
+) -> (i32, Vec<SearchResult>) {
+    let category_query = categories
+        .iter()
+        .map(|category| format!("cat:{}", category))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let date_query = format!(
+        "submittedDate:[{} TO {}]",
+        compact_date_for_arxiv(from_date, false),
+        compact_date_for_arxiv(until_date, true)
+    );
+    let search_query = format!("({}) AND {}", category_query, date_query);
+    let page_size = 100;
+    let requested = limit.clamp(1, 200);
+    let mut start = 0;
+    let mut total_available = 0;
+    let mut results = Vec::new();
+
+    while (results.len() as i32) < requested {
+        let max_results = (requested - results.len() as i32).min(page_size);
+        let url = format!(
+            "https://export.arxiv.org/api/query?search_query={}&start={}&max_results={}&sortBy=submittedDate&sortOrder=descending",
+            urlencoding::encode(&search_query),
+            start,
+            max_results,
+        );
+
+        let resp = match client.get(&url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                log::warn!("arXiv feed 请求失败: {}", e);
+                break;
+            }
+        };
+        let body = match resp.text().await {
+            Ok(b) => b,
+            Err(e) => {
+                log::warn!("arXiv feed 读取失败: {}", e);
+                break;
+            }
+        };
+
+        if total_available == 0 {
+            total_available = parse_arxiv_total_results(&body).unwrap_or(0);
+        }
+        let page_results = parse_arxiv_xml(&body);
+        if page_results.is_empty() {
+            break;
+        }
+        start += page_results.len() as i32;
+        results.extend(page_results);
+    }
+
+    (total_available, results)
+}
+
+fn parse_arxiv_total_results(xml: &str) -> Option<i32> {
+    let value = xml
+        .match_indices("<opensearch:totalResults>")
+        .next()
+        .and_then(|(start, _)| {
+            let from = start + "<opensearch:totalResults>".len();
+            let end = xml[from..].find("</opensearch:totalResults>")? + from;
+            Some(xml[from..end].trim())
+        })?;
+    value.parse::<i32>().ok()
 }
 
 fn parse_arxiv_xml(xml: &str) -> Vec<SearchResult> {
@@ -1037,10 +1403,17 @@ fn parse_arxiv_xml(xml: &str) -> Vec<SearchResult> {
                             year,
                             citation_count: 0,
                             open_access_url: pdf_url.clone(),
+                            open_access_pdf_url: pdf_url.clone(),
+                            open_access_landing_url: Some(arxiv_id.clone()),
                             source_url: arxiv_id.clone(),
                             source: "arXiv".to_string(),
                             journal: Some("arXiv".to_string()),
                             doi: None,
+                            published_date: if published.len() >= 10 {
+                                Some(published[..10].to_string())
+                            } else {
+                                date_from_year(year)
+                            },
                             is_top_journal: false,
                             quality_score: 0.0,
                         });
@@ -1067,8 +1440,14 @@ fn parse_arxiv_xml(xml: &str) -> Vec<SearchResult> {
 // ---- Combined search ----
 
 #[tauri::command]
-pub async fn search_papers(query: String, limit: Option<i32>) -> Result<SearchResponse, String> {
+pub async fn search_papers(
+    query: String,
+    limit: Option<i32>,
+    options: Option<SearchOptions>,
+) -> Result<SearchResponse, String> {
     let requested_limit = limit.unwrap_or(12).clamp(4, 40);
+    let options = normalize_search_options(options);
+    let mode = options.search_mode.as_deref().unwrap_or("keyword_search");
     let per_source = ((requested_limit + 3) / 4).max(4).min(15);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(14))
@@ -1076,11 +1455,42 @@ pub async fn search_papers(query: String, limit: Option<i32>) -> Result<SearchRe
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
+    if mode == "recent_ai_feed" || mode == "arxiv_category_feed" {
+        let categories = arxiv_categories_for_options(&options);
+        let from_date = options
+            .from_date
+            .clone()
+            .unwrap_or_else(|| "1970-01-01".to_string());
+        let until_date = options
+            .until_date
+            .clone()
+            .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+        let feed_limit = options.feed_limit.unwrap_or(limit.unwrap_or(50)).clamp(1, 200);
+        let (total_available, mut results) =
+            search_arxiv_feed(&client, &categories, &from_date, &until_date, feed_limit).await;
+        let tokens = query_tokens(&query);
+        results = results
+            .into_iter()
+            .map(|result| annotate_result(result, &tokens, &options))
+            .collect();
+        let fetched = results.len() as i32;
+        return Ok(SearchResponse {
+            total: fetched,
+            results,
+            mode: Some(mode.to_string()),
+            total_available: Some(total_available),
+            fetched: Some(fetched),
+            categories: Some(categories),
+            from_date: Some(from_date),
+            until_date: Some(until_date),
+        });
+    }
+
     let (openalex_results, arxiv_results, semantic_results, crossref_results) = tokio::join!(
-        search_openalex(&client, &query, per_source),
-        search_arxiv(&client, &query, per_source),
-        search_semantic_scholar(&client, &query, per_source),
-        search_crossref(&client, &query, per_source),
+        search_openalex(&client, &query, per_source, &options),
+        search_arxiv(&client, &query, per_source, &options),
+        search_semantic_scholar(&client, &query, per_source, &options),
+        search_crossref(&client, &query, per_source, &options),
     );
 
     let mut by_key: HashMap<String, SearchResult> = HashMap::new();
@@ -1092,8 +1502,9 @@ pub async fn search_papers(query: String, limit: Option<i32>) -> Result<SearchRe
         .chain(arxiv_results.into_iter())
         .chain(semantic_results.into_iter())
         .chain(crossref_results.into_iter())
+        .filter(|result| within_date_range(result, &options))
     {
-        let result = annotate_result(result, &tokens);
+        let result = annotate_result(result, &tokens, &options);
         let key = result_key(&result);
         if let Some(existing) = by_key.get_mut(&key) {
             merge_result(existing, result);
@@ -1103,17 +1514,38 @@ pub async fn search_papers(query: String, limit: Option<i32>) -> Result<SearchRe
     }
 
     let mut results: Vec<SearchResult> = by_key.into_values().collect();
-    results.sort_by(|a, b| {
-        b.quality_score
-            .partial_cmp(&a.quality_score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    if is_newest_sort(&options) {
+        results.sort_by(|a, b| {
+            publication_date_key(b)
+                .cmp(&publication_date_key(a))
+                .then_with(|| {
+                    b.quality_score
+                        .partial_cmp(&a.quality_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+        });
+    } else {
+        results.sort_by(|a, b| {
+            b.quality_score
+                .partial_cmp(&a.quality_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
     results.truncate(requested_limit as usize);
 
     let total = results.len() as i32;
     log::info!("合并搜索: query={}, total={}", query, total);
 
-    Ok(SearchResponse { total, results })
+    Ok(SearchResponse {
+        total,
+        results,
+        mode: Some(mode.to_string()),
+        total_available: None,
+        fetched: Some(total),
+        categories: None,
+        from_date: options.from_date,
+        until_date: options.until_date,
+    })
 }
 
 #[cfg(test)]
@@ -1124,13 +1556,23 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
+    fn default_options() -> SearchOptions {
+        normalize_search_options(None)
+    }
+
     // ---- OpenAlex ----
 
     #[tokio::test]
     async fn openalex_returns_results() {
         init_log();
         let client = reqwest::Client::new();
-        let results = search_openalex(&client, "transformer attention mechanism", 5).await;
+        let results = search_openalex(
+            &client,
+            "transformer attention mechanism",
+            5,
+            &default_options(),
+        )
+        .await;
         assert!(!results.is_empty(), "OpenAlex 应返回结果");
         for r in &results {
             assert!(!r.title.is_empty());
@@ -1143,7 +1585,7 @@ mod tests {
     async fn openalex_has_metadata() {
         init_log();
         let client = reqwest::Client::new();
-        let results = search_openalex(&client, "deep learning", 3).await;
+        let results = search_openalex(&client, "deep learning", 3, &default_options()).await;
         assert!(!results.is_empty());
         let has_authors = results.iter().any(|r| !r.authors.is_empty());
         let has_year = results.iter().any(|r| r.year.is_some());
@@ -1155,7 +1597,7 @@ mod tests {
     async fn openalex_gibberish_returns_empty_or_few() {
         init_log();
         let client = reqwest::Client::new();
-        let results = search_openalex(&client, "zzzxxxxqqqq99999", 5).await;
+        let results = search_openalex(&client, "zzzxxxxqqqq99999", 5, &default_options()).await;
         assert!(results.len() <= 1, "乱码查询不应返回多条结果");
     }
 
@@ -1165,7 +1607,7 @@ mod tests {
     async fn arxiv_returns_results() {
         init_log();
         let client = reqwest::Client::new();
-        let results = search_arxiv(&client, "large language models", 5).await;
+        let results = search_arxiv(&client, "large language models", 5, &default_options()).await;
         assert!(!results.is_empty(), "arXiv 应返回结果");
         for r in &results {
             assert!(!r.title.is_empty());
@@ -1182,7 +1624,7 @@ mod tests {
     async fn arxiv_has_abstracts() {
         init_log();
         let client = reqwest::Client::new();
-        let results = search_arxiv(&client, "neural network", 3).await;
+        let results = search_arxiv(&client, "neural network", 3, &default_options()).await;
         assert!(!results.is_empty());
         let has_abstract = results.iter().any(|r| r.abstract_text.is_some());
         assert!(has_abstract, "至少一篇 arXiv 论文应有摘要");
@@ -1236,9 +1678,10 @@ mod tests {
         init_log();
         let client = reqwest::Client::new();
         let per_source = 4;
+        let options = default_options();
         let (openalex, arxiv) = tokio::join!(
-            search_openalex(&client, "reinforcement learning", per_source),
-            search_arxiv(&client, "reinforcement learning", per_source),
+            search_openalex(&client, "reinforcement learning", per_source, &options),
+            search_arxiv(&client, "reinforcement learning", per_source, &options),
         );
         let total = openalex.len() + arxiv.len();
         assert!(total > 0, "合并搜索应返回结果");
@@ -1278,7 +1721,10 @@ mod tests {
             normalize_doi("HTTPS://DOI.ORG/10.1038/s41586-024-00000-0"),
             "10.1038/s41586-024-00000-0"
         );
-        assert_eq!(normalize_doi("doi:10.1126/science.test"), "10.1126/science.test");
+        assert_eq!(
+            normalize_doi("doi:10.1126/science.test"),
+            "10.1126/science.test"
+        );
     }
 
     #[test]
@@ -1295,20 +1741,31 @@ mod tests {
         let tokens = query_tokens("Stephen Cheng Sarah Wiegreze Dinesh Manocha");
         let target = SearchResult {
             id: "arxiv:2604.08524".to_string(),
-            title: "What Drives Representation Steering? A Mechanistic Case Study on Steering Refusal".to_string(),
+            title:
+                "What Drives Representation Steering? A Mechanistic Case Study on Steering Refusal"
+                    .to_string(),
             abstract_text: Some("test".to_string()),
             authors: vec![
-                SearchAuthor { name: "Stephen Cheng".to_string() },
-                SearchAuthor { name: "Sarah Wiegreffe".to_string() },
-                SearchAuthor { name: "Dinesh Manocha".to_string() },
+                SearchAuthor {
+                    name: "Stephen Cheng".to_string(),
+                },
+                SearchAuthor {
+                    name: "Sarah Wiegreffe".to_string(),
+                },
+                SearchAuthor {
+                    name: "Dinesh Manocha".to_string(),
+                },
             ],
             year: Some(2026),
             citation_count: 0,
             open_access_url: None,
+            open_access_pdf_url: None,
+            open_access_landing_url: None,
             source_url: "https://arxiv.org/abs/2604.08524".to_string(),
             source: "arXiv".to_string(),
             journal: Some("arXiv".to_string()),
             doi: None,
+            published_date: Some("2026-04-01".to_string()),
             is_top_journal: false,
             quality_score: 0.0,
         };
@@ -1320,10 +1777,13 @@ mod tests {
             year: Some(2017),
             citation_count: 1,
             open_access_url: None,
+            open_access_pdf_url: None,
+            open_access_landing_url: None,
             source_url: "https://doi.org/example".to_string(),
             source: "Crossref".to_string(),
             journal: Some("AORN Journal".to_string()),
             doi: Some("10.1016/example".to_string()),
+            published_date: Some("2017-01-01".to_string()),
             is_top_journal: false,
             quality_score: 0.0,
         };

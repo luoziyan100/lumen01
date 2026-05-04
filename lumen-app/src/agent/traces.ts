@@ -74,6 +74,7 @@ export function finishAgentRun(run: AgentRun): void {
 }
 
 export function failAgentRun(run: AgentRun, error: unknown): void {
-  run.status = String(error).includes('Aborted') ? 'cancelled' : 'failed'
+  const message = error instanceof Error ? `${error.name} ${error.message}` : String(error)
+  run.status = message.toLowerCase().includes('abort') ? 'cancelled' : 'failed'
   run.finishedAt = now()
 }

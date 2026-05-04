@@ -24,6 +24,24 @@ export interface ProviderDef {
   placeholder: string
 }
 
+export type AgentModelRole =
+  | 'planner'
+  | 'reflector'
+  | 'synthesizer'
+  | 'simple_answer'
+  | 'local_paper_analysis'
+  | 'risk_sensor'
+
+export interface ChatOptions {
+  provider?: string
+  model?: string
+  endpoint?: string
+  temperature?: number
+  maxTokens?: number
+  responseFormat?: 'json' | 'text'
+  signal?: AbortSignal
+}
+
 export const PROVIDERS: ProviderDef[] = [
   { id: 'openai', name: 'OpenAI', modelHint: 'gpt-4o-mini', placeholder: 'sk-...' },
   { id: 'deepseek', name: 'DeepSeek', modelHint: 'deepseek-chat', placeholder: 'sk-...' },
@@ -34,6 +52,24 @@ export const PROVIDERS: ProviderDef[] = [
 const OPENAI_COMPAT_ENDPOINTS: Record<string, string> = {
   openai: 'https://api.openai.com/v1/chat/completions',
   deepseek: 'https://api.deepseek.com/chat/completions',
+}
+
+const DEEPSEEK_ROLE_MODELS: Record<AgentModelRole, string> = {
+  planner: 'deepseek-v4-flash',
+  reflector: 'deepseek-v4-flash',
+  simple_answer: 'deepseek-v4-flash',
+  risk_sensor: 'deepseek-v4-flash',
+  synthesizer: 'deepseek-v4-pro',
+  local_paper_analysis: 'deepseek-v4-pro',
+}
+
+const AGENT_ROLE_OPTIONS: Record<AgentModelRole, Omit<ChatOptions, 'provider' | 'model' | 'signal'>> = {
+  planner: { temperature: 0, maxTokens: 1200, responseFormat: 'json' },
+  reflector: { temperature: 0, maxTokens: 1200, responseFormat: 'json' },
+  simple_answer: { temperature: 0.2, maxTokens: 1000 },
+  risk_sensor: { temperature: 0, maxTokens: 1000, responseFormat: 'json' },
+  synthesizer: { temperature: 0.2, maxTokens: 4096 },
+  local_paper_analysis: { temperature: 0.2, maxTokens: 4096 },
 }
 
 function parseCustomModelField(modelField: string): { endpoint: string | null; model: string } {
@@ -65,16 +101,21 @@ async function callOpenAICompat(
   apiKey: string,
   model: string,
   messages: ChatMessage[],
-  signal?: AbortSignal,
+  options: ChatOptions = {},
 ): Promise<string> {
+  const body: Record<string, unknown> = { model, messages: buildOpenAIMessages(messages) }
+  if (typeof options.temperature === 'number') body.temperature = options.temperature
+  if (typeof options.maxTokens === 'number') body.max_tokens = options.maxTokens
+  if (options.responseFormat === 'json') body.response_format = { type: 'json_object' }
+
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model, messages: buildOpenAIMessages(messages) }),
-    signal,
+    body: JSON.stringify(body),
+    signal: options.signal,
   })
 
   if (!res.ok) {
@@ -107,7 +148,7 @@ async function callAnthropic(
   apiKey: string,
   model: string,
   messages: ChatMessage[],
-  signal?: AbortSignal,
+  options: ChatOptions = {},
 ): Promise<string> {
   const systemMsg = messages.find((m) => m.role === 'system')
 
@@ -121,11 +162,11 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: options.maxTokens ?? 4096,
       system: systemMsg?.content,
       messages: buildAnthropicMessages(messages),
     }),
-    signal,
+    signal: options.signal,
   })
 
   if (!res.ok) {
@@ -143,13 +184,22 @@ async function callDevAiProxy(
   model: string,
   messages: ChatMessage[],
   endpoint?: string,
-  signal?: AbortSignal,
+  options: ChatOptions = {},
 ): Promise<string> {
   const res = await fetch('/api/ai/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, apiKey, model, endpoint, messages }),
-    signal,
+    body: JSON.stringify({
+      provider,
+      apiKey,
+      model,
+      endpoint,
+      messages,
+      temperature: options.temperature,
+      maxTokens: options.maxTokens,
+      responseFormat: options.responseFormat,
+    }),
+    signal: options.signal,
   })
 
   if (!res.ok) {
@@ -163,44 +213,71 @@ async function callDevAiProxy(
 
 export async function chatWithAI(
   messages: ChatMessage[],
-  provider?: string,
+  providerOrOptions?: string | ChatOptions,
   signal?: AbortSignal,
 ): Promise<string> {
-  const config = await getAiConfig(provider)
+  const options: ChatOptions = typeof providerOrOptions === 'string'
+    ? { provider: providerOrOptions, signal }
+    : { ...(providerOrOptions ?? {}), signal: providerOrOptions?.signal ?? signal }
+  const config = await getAiConfig(options.provider)
   if (!config?.api_key) {
     throw new Error('请先在设置中配置 AI API Key')
   }
 
-  const model = config.default_model || PROVIDERS.find((p) => p.id === config.provider)?.modelHint || ''
+  const model = options.model || config.default_model || PROVIDERS.find((p) => p.id === config.provider)?.modelHint || ''
 
   if (!hasTauriInvoke()) {
     if (config.provider === 'custom') {
       const { endpoint, model: customModel } = parseCustomModelField(config.default_model || '')
-      if (!endpoint) {
+      const customEndpoint = options.endpoint || endpoint
+      if (!customEndpoint) {
         throw new Error('自定义提供商需要在模型字段填写 API 端点 URL（格式：URL 或 URL|模型名）')
       }
-      return callDevAiProxy(config.provider, config.api_key, customModel, messages, endpoint, signal)
+      return callDevAiProxy(config.provider, config.api_key, options.model || customModel, messages, customEndpoint, options)
     }
 
-    return callDevAiProxy(config.provider, config.api_key, model, messages, undefined, signal)
+    return callDevAiProxy(config.provider, config.api_key, model, messages, undefined, options)
   }
 
   if (config.provider === 'anthropic') {
-    return callAnthropic(config.api_key, model, messages, signal)
+    return callAnthropic(config.api_key, model, messages, options)
   }
 
   const endpoint = OPENAI_COMPAT_ENDPOINTS[config.provider]
   if (endpoint) {
-    return callOpenAICompat(endpoint, config.api_key, model, messages, signal)
+    return callOpenAICompat(endpoint, config.api_key, model, messages, options)
   }
 
   if (config.provider === 'custom') {
     const { endpoint: customEndpoint, model: customModel } = parseCustomModelField(config.default_model || '')
-    if (!customEndpoint) {
+    const endpoint = options.endpoint || customEndpoint
+    if (!endpoint) {
       throw new Error('自定义提供商需要在模型字段填写 API 端点 URL（格式：URL 或 URL|模型名）')
     }
-    return callOpenAICompat(customEndpoint, config.api_key, customModel, messages, signal)
+    return callOpenAICompat(endpoint, config.api_key, options.model || customModel, messages, options)
   }
 
   throw new Error(`不支持的 AI 提供商: ${config.provider}`)
+}
+
+export async function chatWithAgentModel(
+  messages: ChatMessage[],
+  role: AgentModelRole,
+  signal?: AbortSignal,
+): Promise<string> {
+  const config = await getAiConfig()
+  if (!config?.api_key) {
+    throw new Error('请先在设置中配置 AI API Key')
+  }
+
+  if (config.provider !== 'deepseek') {
+    return chatWithAI(messages, undefined, signal)
+  }
+
+  return chatWithAI(messages, {
+    ...AGENT_ROLE_OPTIONS[role],
+    provider: 'deepseek',
+    model: DEEPSEEK_ROLE_MODELS[role],
+    signal,
+  })
 }

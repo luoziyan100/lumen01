@@ -31,9 +31,19 @@ export interface ResearchNote {
   created_at: string | null
 }
 
+export interface ResearchArtifact {
+  id: string
+  project_id: string
+  note_id: string | null
+  type: string
+  data_json: string
+  created_at: string | null
+}
+
 const PROJECTS_KEY = 'lumen.dev.research.projects'
 const NOTES_KEY = 'lumen.dev.research.notes'
 const PAPERS_KEY = 'lumen.dev.research.paperIds'
+const ARTIFACTS_KEY = 'lumen.dev.research.artifacts'
 
 function readLocal<T>(key: string, fallback: T): T {
   if (typeof localStorage === 'undefined') return fallback
@@ -73,6 +83,14 @@ function writeNotes(notes: ResearchNote[]): void {
 
 function readResearchPaperIds(): Record<string, string[]> {
   return readLocal<Record<string, string[]>>(PAPERS_KEY, {})
+}
+
+function readArtifacts(): ResearchArtifact[] {
+  return readLocal<ResearchArtifact[]>(ARTIFACTS_KEY, [])
+}
+
+function writeArtifacts(artifacts: ResearchArtifact[]): void {
+  writeLocal(ARTIFACTS_KEY, artifacts)
 }
 
 function writeResearchPaperIds(value: Record<string, string[]>): void {
@@ -156,6 +174,7 @@ export async function deleteResearchProject(id: string): Promise<void> {
 
   writeProjects(readProjects().filter((p) => p.id !== id))
   writeNotes(readNotes().filter((n) => n.project_id !== id))
+  writeArtifacts(readArtifacts().filter((artifact) => artifact.project_id !== id))
   const paperIds = readResearchPaperIds()
   delete paperIds[id]
   writeResearchPaperIds(paperIds)
@@ -229,4 +248,53 @@ export async function listResearchNotes(projectId: string): Promise<ResearchNote
   return readNotes()
     .filter((n) => n.project_id === projectId)
     .sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''))
+}
+
+export async function addResearchArtifact(
+  projectId: string,
+  type: string,
+  data: unknown,
+  noteId?: string | null,
+): Promise<ResearchArtifact> {
+  const dataJson = typeof data === 'string' ? data : JSON.stringify(data)
+
+  if (hasTauriInvoke()) {
+    return invokeTauri<ResearchArtifact>('add_research_artifact', {
+      projectId,
+      noteId: noteId ?? null,
+      artifactType: type,
+      dataJson,
+    })
+  }
+
+  const artifact: ResearchArtifact = {
+    id: newId('artifact'),
+    project_id: projectId,
+    note_id: noteId ?? null,
+    type,
+    data_json: dataJson,
+    created_at: new Date().toISOString(),
+  }
+  writeArtifacts([artifact, ...readArtifacts()])
+  touchProject(projectId)
+  return artifact
+}
+
+export async function listResearchArtifacts(
+  projectId: string,
+  type?: string,
+  limit = 20,
+): Promise<ResearchArtifact[]> {
+  if (hasTauriInvoke()) {
+    return invokeTauri<ResearchArtifact[]>('list_research_artifacts', {
+      projectId,
+      artifactType: type ?? null,
+      limit,
+    })
+  }
+
+  return readArtifacts()
+    .filter((artifact) => artifact.project_id === projectId && (!type || artifact.type === type))
+    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+    .slice(0, limit)
 }

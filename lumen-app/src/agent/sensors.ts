@@ -3,7 +3,7 @@
  * [OUTPUT]: 对外提供搜索反思和回答风险检测
  * [POS]: agent 模块的 sensor 层，负责评估工具结果与最终输出质量风险
  */
-import { chatWithAI, type ChatMessage } from '../services/ai'
+import { chatWithAgentModel, type ChatMessage } from '../services/ai'
 import { buildReflectionUserPrompt, REFLECTION_SYSTEM_PROMPT } from './prompts'
 import { extractJsonObject } from './guides'
 import type { SearchBatch, SearchPlan, SearchReflection, SensorResult } from './types'
@@ -40,7 +40,7 @@ export async function reflectOnSearchResults(
     { role: 'user', content: buildReflectionUserPrompt(userText, plan, batches) },
   ]
 
-  const reply = await chatWithAI(reflectionMessages, undefined, signal)
+  const reply = await chatWithAgentModel(reflectionMessages, 'reflector', signal)
   try {
     return normalizeReflection(extractJsonObject(reply))
   } catch {

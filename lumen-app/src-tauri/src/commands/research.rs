@@ -35,6 +35,17 @@ pub struct ResearchNote {
     pub created_at: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ResearchArtifact {
+    pub id: String,
+    pub project_id: String,
+    pub note_id: Option<String>,
+    #[serde(rename = "type")]
+    pub artifact_type: String,
+    pub data_json: String,
+    pub created_at: Option<String>,
+}
+
 #[tauri::command]
 pub fn create_research_project(db: State<DbState>, name: String) -> Result<ResearchProject, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -270,4 +281,87 @@ pub fn list_research_notes(db: State<DbState>, project_id: String) -> Result<Vec
         .map_err(|e| e.to_string())?;
 
     Ok(notes)
+}
+
+#[tauri::command]
+pub fn add_research_artifact(
+    db: State<DbState>,
+    project_id: String,
+    note_id: Option<String>,
+    artifact_type: String,
+    data_json: String,
+) -> Result<ResearchArtifact, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+
+    conn.execute(
+        "INSERT INTO research_artifacts (id, project_id, note_id, type, data_json)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![id, project_id, note_id, artifact_type, data_json],
+    )
+    .map_err(|e| format!("保存研究上下文失败: {}", e))?;
+
+    conn.execute(
+        "UPDATE research_projects SET updated_at = datetime('now') WHERE id = ?1",
+        [&project_id],
+    )
+    .map_err(|_| "更新时间失败".to_string())?;
+
+    Ok(ResearchArtifact {
+        id,
+        project_id,
+        note_id,
+        artifact_type,
+        data_json,
+        created_at: None,
+    })
+}
+
+#[tauri::command]
+pub fn list_research_artifacts(
+    db: State<DbState>,
+    project_id: String,
+    artifact_type: Option<String>,
+    limit: Option<i32>,
+) -> Result<Vec<ResearchArtifact>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let limit = limit.unwrap_or(20).clamp(1, 100);
+
+    let (sql, params): (&str, Vec<&dyn rusqlite::ToSql>) = if let Some(artifact_type) = &artifact_type {
+        (
+            "SELECT id, project_id, note_id, type, data_json, created_at
+             FROM research_artifacts
+             WHERE project_id = ?1 AND type = ?2
+             ORDER BY created_at DESC
+             LIMIT ?3",
+            vec![&project_id, artifact_type, &limit],
+        )
+    } else {
+        (
+            "SELECT id, project_id, note_id, type, data_json, created_at
+             FROM research_artifacts
+             WHERE project_id = ?1
+             ORDER BY created_at DESC
+             LIMIT ?2",
+            vec![&project_id, &limit],
+        )
+    };
+
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+    let artifacts = stmt
+        .query_map(rusqlite::params_from_iter(params), |row| {
+            Ok(ResearchArtifact {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                note_id: row.get(2)?,
+                artifact_type: row.get(3)?,
+                data_json: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(artifacts)
 }

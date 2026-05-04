@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lumen 项目架构图</title>
+  <style>
+    :root {
+      --bg: #020817;
+      --panel: rgba(8, 22, 40, 0.78);
+      --panel-2: rgba(12, 29, 50, 0.9);
+      --line: #3b82f6;
+      --line-soft: rgba(96, 165, 250, 0.55);
+      --text: #eef6ff;
+      --muted: #a7bed8;
+      --cyan: #21f0ff;
+      --cyan-soft: rgba(33, 240, 255, 0.16);
+      --green: #3ef28a;
+      --red: #ff5757;
+      --red-soft: rgba(255, 87, 87, 0.14);
+      --card-border: rgba(203, 213, 225, 0.72);
+      --shadow: 0 18px 70px rgba(0, 0, 0, 0.42);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow: hidden;
+      color: var(--text);
+      font-family: "Inter Tight", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      background:
+        radial-gradient(circle at 24% 18%, rgba(59, 130, 246, 0.22), transparent 30%),
+        radial-gradient(circle at 82% 26%, rgba(34, 211, 238, 0.14), transparent 26%),
+        linear-gradient(135deg, #020817 0%, #061323 48%, #020817 100%);
+    }
+
+    .toolbar {
+      position: fixed;
+      z-index: 20;
+      top: 16px;
+      left: 18px;
+      right: 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid rgba(96, 165, 250, 0.42);
+      border-radius: 14px;
+      background: rgba(2, 8, 23, 0.78);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .toolbar h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .toolbar .hint {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .spacer {
+      flex: 1;
+    }
+
+    button {
+      color: var(--text);
+      border: 1px solid rgba(148, 163, 184, 0.46);
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.9);
+      padding: 8px 11px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: var(--cyan);
+      background: rgba(14, 36, 58, 0.95);
+    }
+
+    #zoomLabel {
+      width: 58px;
+      color: var(--cyan);
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .viewport {
+      position: fixed;
+      inset: 82px 0 0;
+      overflow: auto;
+      cursor: grab;
+    }
+
+    .stage {
+      position: relative;
+      width: 1580px;
+      height: 1620px;
+    }
+
+    .diagram {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1580px;
+      height: 1620px;
+      transform-origin: 0 0;
+    }
+
+    .title {
+      position: absolute;
+      top: 30px;
+      left: 0;
+      width: 1180px;
+      text-align: center;
+      font-size: 48px;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-shadow: 0 4px 18px rgba(0, 0, 0, 0.48);
+    }
+
+    .subtitle {
+      position: absolute;
+      top: 92px;
+      left: 0;
+      width: 1180px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .layer {
+      position: absolute;
+      left: 32px;
+      width: 1110px;
+      min-height: 150px;
+      border: 1px solid var(--line-soft);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(8, 22, 40, 0.76), rgba(5, 16, 30, 0.72));
+      box-shadow: inset 0 0 44px rgba(96, 165, 250, 0.05);
+    }
+
+    .layer-label {
+      position: absolute;
+      left: 28px;
+      top: 34px;
+      width: 160px;
+      color: #63b3ff;
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.22;
+    }
+
+    .badge {
+      display: grid;
+      place-items: center;
+      width: 56px;
+      height: 56px;
+      margin-bottom: 16px;
+      border-radius: 999px;
+      color: white;
+      font-size: 28px;
+      font-weight: 800;
+      background: radial-gradient(circle at 32% 28%, #57a7ff, #1d4f92 70%);
+      box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.45), 0 18px 36px rgba(37, 99, 235, 0.2);
+    }
+
+    .cards {
+      position: absolute;
+      left: 205px;
+      right: 36px;
+      top: 36px;
+      display: flex;
+      align-items: stretch;
+      gap: 18px;
+    }
+
+    .cards.wrap {
+      flex-wrap: wrap;
+      gap: 14px;
+      top: 30px;
+    }
+
+    .card {
+      min-width: 118px;
+      height: 92px;
+      display: grid;
+      place-items: center;
+      gap: 6px;
+      padding: 10px;
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      background: rgba(12, 26, 46, 0.86);
+      box-shadow: inset 0 0 32px rgba(148, 163, 184, 0.04);
+      text-align: center;
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .card.small {
+      min-width: 105px;
+      height: 78px;
+      font-size: 15px;
+    }
+
+    .card.wide {
+      min-width: 155px;
+    }
+
+    .card .icon {
+      width: 34px;
+      height: 34px;
+      color: #e2e8f0;
+    }
+
+    .right-rail {
+      position: absolute;
+      left: 1210px;
+      width: 305px;
+      border: 2px solid var(--cyan);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(4, 24, 37, 0.94), rgba(4, 17, 27, 0.88));
+      box-shadow: 0 0 30px rgba(34, 211, 238, 0.08);
+      padding: 18px;
+      text-align: center;
+    }
+
+    .right-rail h2 {
+      margin: 0 0 12px;
+      color: var(--cyan);
+      font-size: 21px;
+      letter-spacing: 0;
+    }
+
+    .right-rail p {
+      margin: 0;
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1.45;
+    }
+
+    .risk {
+      position: absolute;
+      left: 1195px;
+      top: 1198px;
+      width: 335px;
+      padding: 18px;
+      border: 2px dashed var(--red);
+      border-radius: 18px;
+      background: rgba(50, 8, 16, 0.42);
+    }
+
+    .risk .risk-card {
+      margin: 12px 0;
+      padding: 16px 18px;
+      border: 1px solid var(--red);
+      border-radius: 10px;
+      background: var(--red-soft);
+      color: #ffd9d9;
+      font-size: 18px;
+      font-weight: 800;
+      text-align: center;
+      line-height: 1.32;
+    }
+
+    .legend {
+      position: absolute;
+      left: 38px;
+      top: 1518px;
+      width: 520px;
+      padding: 18px 24px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      border-radius: 10px;
+      background: rgba(2, 8, 23, 0.64);
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin: 9px 0;
+    }
+
+    .sample {
+      width: 56px;
+      height: 0;
+      border-top: 3px solid #d1d5db;
+      position: relative;
+    }
+
+    .sample.cyan {
+      border-color: var(--cyan);
+    }
+
+    .sample.red {
+      border-color: var(--red);
+      border-top-style: dashed;
+    }
+
+    .sample.green {
+      border-color: var(--green);
+    }
+
+    .note {
+      position: absolute;
+      left: 600px;
+      top: 1518px;
+      width: 610px;
+      padding: 18px 22px;
+      border: 1px solid rgba(96, 165, 250, 0.45);
+      border-radius: 10px;
+      background: rgba(2, 8, 23, 0.64);
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    svg.wires {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    .wire {
+      fill: none;
+      stroke: #d1d5db;
+      stroke-width: 3;
+      opacity: 0.85;
+      marker-end: url(#arrow);
+    }
+
+    .wire-cyan {
+      fill: none;
+      stroke: var(--cyan);
+      stroke-width: 4;
+      marker-end: url(#arrowCyan);
+    }
+
+    .wire-red {
+      fill: none;
+      stroke: var(--red);
+      stroke-width: 3;
+      stroke-dasharray: 8 8;
+      marker-end: url(#arrowRed);
+    }
+
+    .wire-green {
+      fill: none;
+      stroke: var(--green);
+      stroke-width: 4;
+      marker-end: url(#arrowGreen);
+    }
+
+    @media (max-width: 760px) {
+      .toolbar {
+        flex-wrap: wrap;
+      }
+
+      .toolbar .hint {
+        display: none;
+      }
+
+      .viewport {
+        inset-top: 118px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <h1>Lumen 项目架构图</h1>
+    <span class="hint">可滚轮缩放，也可以拖动滚动条查看细节</span>
+    <div class="spacer"></div>
+    <button id="zoomOut">缩小</button>
+    <span id="zoomLabel">100%</span>
+    <button id="zoomIn">放大</button>
+    <button id="fit">适配窗口</button>
+    <button id="reset">100%</button>
+  </div>
+
+  <main class="viewport" id="viewport">
+    <div class="stage" id="stage">
+      <section class="diagram" id="diagram">
+        <div class="title">Lumen 项目架构</div>
+        <div class="subtitle">当前实现：Research Agent 已拆出 Harness 层 · Guides / Runtime / Tools / Sensors / Traces</div>
+
+        <svg class="wires" viewBox="0 0 1580 1620" aria-hidden="true">
+          <defs>
+            <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+              <path d="M2,2 L10,6 L2,10 Z" fill="#d1d5db"></path>
+            </marker>
+            <marker id="arrowCyan" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+              <path d="M2,2 L10,6 L2,10 Z" fill="#21f0ff"></path>
+            </marker>
+            <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+              <path d="M2,2 L10,6 L2,10 Z" fill="#3ef28a"></path>
+            </marker>
+            <marker id="arrowRed" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+              <path d="M2,2 L10,6 L2,10 Z" fill="#ff5757"></path>
+            </marker>
+          </defs>
+
+          <path class="wire" d="M365 282 L365 320"></path>
+          <path class="wire" d="M540 282 L540 320"></path>
+          <path class="wire" d="M714 282 L714 320"></path>
+          <path class="wire" d="M890 282 L890 320"></path>
+          <path class="wire" d="M590 500 L590 535"></path>
+          <path class="wire" d="M590 712 L590 742"></path>
+          <path class="wire-green" d="M590 940 L590 962"></path>
+          <path class="wire" d="M590 1150 L590 1172"></path>
+          <path class="wire" d="M590 1340 L590 1362"></path>
+          <path class="wire" d="M590 1500 L300 1500 L300 1510"></path>
+          <path class="wire" d="M590 1500 L480 1500 L480 1510"></path>
+          <path class="wire" d="M590 1500 L655 1500 L655 1510"></path>
+          <path class="wire" d="M590 1500 L840 1500 L840 1510"></path>
+          <path class="wire" d="M590 1500 L1015 1500 L1015 1510"></path>
+
+          <path class="wire-cyan" d="M1080 425 L1198 425"></path>
+          <path class="wire-cyan" d="M1362 516 L1362 548"></path>
+          <path class="wire-cyan" d="M1362 640 L1362 676"></path>
+          <path class="wire-green" d="M1080 850 L1198 850"></path>
+          <path class="wire-green" d="M1362 944 L1362 980"></path>
+          <path class="wire-cyan" d="M1080 1060 L1198 1060"></path>
+          <path class="wire-cyan" d="M1362 1178 L1362 1220"></path>
+          <path class="wire-red" d="M1362 1390 L1362 1452"></path>
+        </svg>
+
+        <section class="layer" style="top: 120px; height: 170px;">
+          <div class="layer-label"><span class="badge">1</span>用户入口 /<br>桌面操作</div>
+          <div class="cards">
+            <div class="card"><svg class="icon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M12 3v10m0 0 4-4m-4 4-4-4M4 15v4h16v-4"/></svg>导入 PDF</div>
+            <div class="card"><svg class="icon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M4 5h16v14H4zM7 8h10M7 12h7M7 16h5"/></svg>文献库浏览</div>
+            <div class="card"><svg class="icon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg>阅读器选区</div>
+            <div class="card"><svg class="icon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M4 6h16v10H7l-3 3z"/></svg>Research 对话</div>
+            <div class="card"><svg class="icon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M6 6h4v4H6zM14 4h4v4h-4zM14 14h4v4h-4zM10 8l4-2M10 10l4 6"/></svg>Graph 提取引用</div>
+            <div class="card"><svg class="icon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v3m0 12v3M4.2 4.2l2.1 2.1m11.4 11.4 2.1 2.1M3 12h3m12 0h3M4.2 19.8l2.1-2.1m11.4-11.4 2.1-2.1"/></svg>Settings 配置</div>
+          </div>
+        </section>
+
+        <section class="layer" style="top: 340px; height: 160px;">
+          <div class="layer-label"><span class="badge">2</span>React 路由<br>页面层</div>
+          <div class="cards">
+            <div class="card small wide">AppShell<br>Sidebar</div>
+            <div class="card small">LibraryPage</div>
+            <div class="card small">ReaderPage</div>
+            <div class="card small">ResearchPage</div>
+            <div class="card small">GraphPage</div>
+            <div class="card small">SettingsPage</div>
+            <div class="card small">CollectionPage</div>
+          </div>
+        </section>
+
+        <section class="layer" style="top: 552px; height: 160px;">
+          <div class="layer-label"><span class="badge">3</span>前端组件层</div>
+          <div class="cards">
+            <div class="card small">PdfViewer</div>
+            <div class="card small">Selection<br>Toolbar</div>
+            <div class="card small">Translate<br>Popover</div>
+            <div class="card small">TermCard</div>
+            <div class="card small">AiPanel</div>
+            <div class="card small">Markdown<br>Content</div>
+            <div class="card small">Citation<br>Graph</div>
+          </div>
+        </section>
+
+        <section class="layer" style="top: 760px; height: 180px;">
+          <div class="layer-label"><span class="badge">4</span>Agent Harness<br>工程层</div>
+          <div class="cards wrap">
+            <div class="card small wide">research-agent.ts<br>兼容入口</div>
+            <div class="card small">runtime.ts<br>统一编排</div>
+            <div class="card small">guides.ts<br>前馈规则</div>
+            <div class="card small">prompts.ts<br>提示词库</div>
+            <div class="card small">tools.ts<br>工具封装</div>
+            <div class="card small">sensors.ts<br>反馈检测</div>
+            <div class="card small">traces.ts<br>内存 Trace</div>
+            <div class="card small">types.ts<br>类型边界</div>
+          </div>
+        </section>
+
+        <section class="layer" style="top: 980px; height: 170px;">
+          <div class="layer-label"><span class="badge">5</span>Services<br>能力适配层</div>
+          <div class="cards wrap">
+            <div class="card small">ai.ts<br>Provider</div>
+            <div class="card small">ai-config.ts</div>
+            <div class="card small">search.ts</div>
+            <div class="card small">papers.ts</div>
+            <div class="card small">files.ts</div>
+            <div class="card small">research.ts</div>
+            <div class="card small">collections.ts</div>
+            <div class="card small">annotations.ts</div>
+            <div class="card small">citations.ts</div>
+            <div class="card small wide">citation-extraction.ts</div>
+          </div>
+        </section>
+
+        <section class="layer" style="top: 1190px; height: 150px;">
+          <div class="layer-label"><span class="badge">6</span>Tauri / Rust<br>本地能力层</div>
+          <div class="cards">
+            <div class="card small wide">Tauri invoke</div>
+            <div class="card small">commands/*</div>
+            <div class="card small">files.rs<br>读写 PDF</div>
+            <div class="card small">search.rs<br>学术搜索</div>
+            <div class="card small wide">research.rs<br>citations.rs</div>
+            <div class="card small wide">db/init<br>migrations</div>
+          </div>
+        </section>
+
+        <section class="layer" style="top: 1380px; height: 118px;">
+          <div class="layer-label"><span class="badge">7</span>数据与外部<br>能力层</div>
+          <div class="cards" style="top: 24px; gap: 12px;">
+            <div class="card small">本地 PDF<br>文件</div>
+            <div class="card small">SQLite<br>本地库</div>
+            <div class="card small wide">papers / research_notes<br>annotations / citations</div>
+            <div class="card small">pdf.js<br>渲染/提取</div>
+            <div class="card small wide">OpenAI / Claude<br>DeepSeek / Custom</div>
+            <div class="card small wide">OpenAlex / arXiv<br>Semantic Scholar / Crossref</div>
+          </div>
+        </section>
+
+        <aside class="right-rail" style="top: 350px;">
+          <h2>AI 请求路径</h2>
+          <p>AiPanel / TranslatePopover / TermCard<br>Research Harness</p>
+        </aside>
+        <aside class="right-rail" style="top: 548px;">
+          <h2>ai.ts Provider Adapter</h2>
+          <p>OpenAI 兼容格式<br>Anthropic Messages 格式<br>图片 base64 多模态</p>
+        </aside>
+        <aside class="right-rail" style="top: 676px;">
+          <h2>模型供应商</h2>
+          <p>OpenAI / DeepSeek<br>Claude / 自定义端点</p>
+        </aside>
+
+        <aside class="right-rail" style="top: 805px;">
+          <h2>Harness 运行链路</h2>
+          <p>research-agent.ts 兼容入口<br>runtime.ts 统一编排<br>trace 随结果返回</p>
+        </aside>
+        <aside class="right-rail" style="top: 980px;">
+          <h2>Guides × Sensors</h2>
+          <p>planner 生成 SearchPlan<br>reflector 评估搜索结果<br>detectAnswerRisks 输出风险</p>
+        </aside>
+        <aside class="right-rail" style="top: 1188px;">
+          <h2>学术搜索工具</h2>
+          <p>tools.ts 包装 search.ts<br>Rust search.rs 聚合多源</p>
+        </aside>
+        <aside class="right-rail" style="top: 1366px;">
+          <h2>外部论文数据库</h2>
+          <p>OpenAlex / arXiv<br>Semantic Scholar / Crossref</p>
+        </aside>
+
+        <aside class="risk">
+          <div class="risk-card">开发模式 fallback<br>Vite /api/ai/chat</div>
+          <div class="risk-card">Trace 目前仅内存<br>尚未持久化</div>
+          <div class="risk-card">取消搜索状态<br>待修正为 cancelled</div>
+          <div class="risk-card">AI Key 存在本地<br>ai_config 表</div>
+        </aside>
+
+        <div class="legend">
+          <div class="legend-row"><span class="sample"></span>主要数据与控制流</div>
+          <div class="legend-row"><span class="sample green"></span>Harness 编排与反馈流</div>
+          <div class="legend-row"><span class="sample cyan"></span>AI / 多模型调用路径</div>
+          <div class="legend-row"><span class="sample red"></span>风险或开发模式旁路</div>
+        </div>
+
+        <div class="note">
+          说明：Lumen 现在已经把 Research Agent 从单个 services 文件拆成 `src/agent` Harness。ResearchPage 仍通过兼容入口调用 runResearchAgent，实际由 runtime 编排 guides、tools、sensors 和 traces；services 继续负责模型、搜索、文件、数据库等能力适配。
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const diagram = document.getElementById('diagram')
+    const stage = document.getElementById('stage')
+    const viewport = document.getElementById('viewport')
+    const zoomLabel = document.getElementById('zoomLabel')
+    const canvas = { width: 1580, height: 1620 }
+    let scale = 0.72
+
+    function applyScale() {
+      diagram.style.transform = `scale(${scale})`
+      stage.style.width = `${canvas.width * scale}px`
+      stage.style.height = `${canvas.height * scale}px`
+      zoomLabel.textContent = `${Math.round(scale * 100)}%`
+    }
+
+    function zoomBy(delta) {
+      scale = Math.max(0.35, Math.min(2.2, scale + delta))
+      applyScale()
+    }
+
+    function fitToWindow() {
+      const sx = (viewport.clientWidth - 32) / canvas.width
+      const sy = (viewport.clientHeight - 32) / canvas.height
+      scale = Math.max(0.35, Math.min(1, Math.min(sx, sy)))
+      applyScale()
+      viewport.scrollTo({ left: 0, top: 0, behavior: 'smooth' })
+    }
+
+    document.getElementById('zoomOut').addEventListener('click', () => zoomBy(-0.1))
+    document.getElementById('zoomIn').addEventListener('click', () => zoomBy(0.1))
+    document.getElementById('reset').addEventListener('click', () => { scale = 1; applyScale() })
+    document.getElementById('fit').addEventListener('click', fitToWindow)
+
+    viewport.addEventListener('wheel', (event) => {
+      if (!event.metaKey && !event.ctrlKey) return
+      event.preventDefault()
+      zoomBy(event.deltaY > 0 ? -0.08 : 0.08)
+    }, { passive: false })
+
+    window.addEventListener('resize', () => {
+      if (scale < 1) fitToWindow()
+    })
+
+    fitToWindow()
+  </script>
+</body>
+</html>

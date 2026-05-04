@@ -10,13 +10,19 @@ import { loadPdfData } from '../services/files'
 import { getAiConfig, type AiConfig } from '../services/ai-config'
 import { PROVIDERS } from '../services/ai'
 import { runResearchAgent } from '../services/research-agent'
+import type { SearchResult } from '../services/search'
+import type { SearchPlan, SearchResultSet } from '../agent/types'
+import { hasTauriInvoke } from '../services/tauri'
 import {
   createResearchProject,
   listResearchProjects,
   deleteResearchProject,
   addResearchNote,
   listResearchNotes,
+  addResearchArtifact,
+  listResearchArtifacts,
   type ResearchProject,
+  type ResearchArtifact,
 } from '../services/research'
 import { listCollections, listCollectionPapers, type Collection } from '../services/collections'
 import { Send, Loader2, Download, Square, Plus, MessageSquare, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -27,6 +33,164 @@ interface DisplayMessage {
   role: 'user' | 'assistant'
   content: string
   images?: ImageData[]
+}
+
+interface SearchResultsArtifactData {
+  resultSet?: SearchResultSet
+  results?: SearchResult[]
+  plan?: SearchPlan
+  query?: string
+  mode?: SearchResultSet['mode']
+  totalAvailable?: number
+  fetched?: number
+  categories?: string[]
+  fromDate?: string
+  untilDate?: string
+  createdAt?: string
+}
+
+interface CurrentPaperArtifactData {
+  paper?: SearchResult
+}
+
+function parseArtifactData<T>(artifact: ResearchArtifact | undefined): T | null {
+  if (!artifact) return null
+  try {
+    return JSON.parse(artifact.data_json) as T
+  } catch {
+    return null
+  }
+}
+
+function restoredSearchResults(artifact: ResearchArtifact | undefined): SearchResult[] {
+  const data = parseArtifactData<SearchResultsArtifactData | SearchResult[]>(artifact)
+  if (Array.isArray(data)) return data
+  if (data && typeof data === 'object' && isSearchResultSet((data as SearchResultsArtifactData).resultSet)) {
+    return (data as SearchResultsArtifactData).resultSet!.results
+  }
+  return Array.isArray(data?.results) ? data.results : []
+}
+
+function isSearchResult(value: unknown): value is SearchResult {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && typeof (value as SearchResult).id === 'string'
+    && typeof (value as SearchResult).title === 'string'
+    && Array.isArray((value as SearchResult).authors),
+  )
+}
+
+function isSearchResultSet(value: unknown): value is SearchResultSet {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && typeof (value as SearchResultSet).id === 'string'
+    && typeof (value as SearchResultSet).label === 'string'
+    && Array.isArray((value as SearchResultSet).results),
+  )
+}
+
+function newResultSetId(): string {
+  const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `rs-${random}`
+}
+
+function restoredSearchResultSet(artifact: ResearchArtifact, index: number): SearchResultSet | null {
+  const data = parseArtifactData<SearchResultsArtifactData | SearchResult[] | SearchResultSet>(artifact)
+  if (isSearchResultSet(data)) {
+    return { ...data, noteId: data.noteId ?? artifact.note_id ?? undefined }
+  }
+
+  if (data && !Array.isArray(data) && typeof data === 'object' && isSearchResultSet((data as SearchResultsArtifactData).resultSet)) {
+    const resultSet = (data as SearchResultsArtifactData).resultSet!
+    return { ...resultSet, noteId: resultSet.noteId ?? artifact.note_id ?? undefined }
+  }
+
+  const artifactData = data && !Array.isArray(data) && typeof data === 'object'
+    ? data as SearchResultsArtifactData
+    : null
+  const results = Array.isArray(data) ? data : artifactData?.results
+  if (!Array.isArray(results) || results.length === 0) return null
+
+  const plan = artifactData?.plan ?? {
+    intent: 'academic_search',
+    shouldSearch: true,
+    queries: [],
+  } satisfies SearchPlan
+
+  return {
+    id: `rs-${artifact.id}`,
+    label: `R${index + 1}`,
+    noteId: artifact.note_id ?? undefined,
+    query: artifactData?.query ?? (plan.queries.join('; ') || '历史搜索'),
+    plan,
+    mode: artifactData?.mode ?? plan.searchMode,
+    totalAvailable: artifactData?.totalAvailable,
+    fetched: artifactData?.fetched ?? results.length,
+    categories: artifactData?.categories,
+    fromDate: artifactData?.fromDate ?? plan.timeRange?.fromDate,
+    untilDate: artifactData?.untilDate ?? plan.timeRange?.untilDate,
+    results,
+    createdAt: artifactData?.createdAt ?? artifact.created_at ?? new Date(0).toISOString(),
+  }
+}
+
+function restoredSearchResultSets(artifacts: ResearchArtifact[]): SearchResultSet[] {
+  return artifacts
+    .map((artifact, index) => restoredSearchResultSet(artifact, index))
+    .filter((set): set is SearchResultSet => Boolean(set))
+}
+
+function nextSearchResultSetLabel(sets: SearchResultSet[]): string {
+  const maxLabel = sets.reduce((max, set) => {
+    const parsed = set.label.match(/^R(\d+)$/i)?.[1]
+    return parsed ? Math.max(max, Number(parsed)) : max
+  }, 0)
+  return `R${maxLabel + 1}`
+}
+
+function fallbackSearchResultSet(
+  query: string,
+  label: string,
+  plan: SearchPlan,
+  results: SearchResult[],
+): SearchResultSet {
+  return {
+    id: newResultSetId(),
+    label,
+    query,
+    plan,
+    mode: plan.searchMode,
+    fetched: results.length,
+    categories: plan.arxivCategories,
+    fromDate: plan.timeRange?.fromDate,
+    untilDate: plan.timeRange?.untilDate,
+    results,
+    createdAt: new Date().toISOString(),
+  }
+}
+
+function restoredCurrentPaper(artifact: ResearchArtifact | undefined): SearchResult | null {
+  const data = parseArtifactData<unknown>(artifact)
+  if (isSearchResult(data)) return data
+  if (data && typeof data === 'object' && isSearchResult((data as CurrentPaperArtifactData).paper)) {
+    return (data as CurrentPaperArtifactData).paper ?? null
+  }
+  return null
+}
+
+function ThinkingStatus() {
+  const [step, setStep] = useState(0)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setStep((value) => (value + 1) % 4)
+    }, 450)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  return <span className="t-body-sm">Thinking{'.'.repeat(step)}</span>
 }
 
 export function ResearchPage() {
@@ -41,6 +205,10 @@ export function ResearchPage() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [collections, setCollections] = useState<(Collection & { paperIds: string[] })[]>([])
+  const [lastSearchResults, setLastSearchResults] = useState<SearchResult[]>([])
+  const [searchResultSets, setSearchResultSets] = useState<SearchResultSet[]>([])
+  const [activeSearchResultSetId, setActiveSearchResultSetId] = useState<string | undefined>()
+  const [currentPaper, setCurrentPaper] = useState<SearchResult | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -75,7 +243,11 @@ export function ResearchPage() {
 
   const loadProject = useCallback(async (projectId: string) => {
     try {
-      const notes = await listResearchNotes(projectId)
+      const [notes, searchArtifacts, paperArtifacts] = await Promise.all([
+        listResearchNotes(projectId),
+        listResearchArtifacts(projectId, 'search_results', 10),
+        listResearchArtifacts(projectId, 'current_paper', 1),
+      ])
       const loaded: DisplayMessage[] = notes.map((n) => ({
         id: n.id,
         role: (n.role || 'user') as 'user' | 'assistant',
@@ -83,6 +255,11 @@ export function ResearchPage() {
       }))
       setMessages(loaded)
       setActiveProjectId(projectId)
+      const restoredSets = restoredSearchResultSets(searchArtifacts)
+      setSearchResultSets(restoredSets)
+      setActiveSearchResultSetId(restoredSets[0]?.id)
+      setLastSearchResults(restoredSets[0]?.results ?? restoredSearchResults(searchArtifacts[0]))
+      setCurrentPaper(restoredCurrentPaper(paperArtifacts[0]))
       setError(null)
       setShowHistory(false)
     } catch (e) {
@@ -96,6 +273,10 @@ export function ResearchPage() {
     setError(null)
     setShowHistory(false)
     setPendingImages([])
+    setLastSearchResults([])
+    setSearchResultSets([])
+    setActiveSearchResultSetId(undefined)
+    setCurrentPaper(null)
     setInput('')
   }, [])
 
@@ -141,6 +322,7 @@ ${paperList}${collectionsInfo}
 3. **跨论文研究**：综合多篇论文的观点，产出结构化的研究分析
 
 外部学术搜索由系统内部的 Search Agent 负责规划和执行。你不要输出工具调用语法，也不要编造没有出现在上下文中的论文。
+如果用户要求搜索外部论文、询问“结果呢/搜到了吗”，不要口头承诺“稍候”或否认搜索能力；应让 Search Agent 执行搜索。只有当系统明确返回错误时，才说明具体错误。
 
 使用简体中文回复。引用论文时使用《》标注。回复使用 Markdown 格式。`
   }, [papers, collections])
@@ -211,45 +393,116 @@ ${paperList}${collectionsInfo}
     abortRef.current = controller
 
     let projectId = activeProjectId
+    let projectName = activeProjectId ? projects.find((project) => project.id === activeProjectId)?.name : undefined
 
     try {
       if (!projectId) {
         const name = text.length > 30 ? text.slice(0, 30) + '...' : text
         const project = await createResearchProject(name)
         projectId = project.id
+        projectName = project.name
         setActiveProjectId(projectId)
         setProjects((prev) => [project, ...prev])
       }
 
       await addResearchNote(projectId, 'user', text)
 
-      const isFirstOrResearchQuery = messages.length === 0 ||
-        /研究|分析|对比|总结|综合|读.*论文|看看.*论文/.test(text)
-
-      let paperContext = ''
-      if (isFirstOrResearchQuery && papers.length > 0) {
-        paperContext = await extractPaperContent(text)
-      }
-
       const history: ChatMessage[] = [
         { role: 'system', content: buildSystemPrompt() },
         ...messages.map((m) => ({ role: m.role, content: m.content, images: m.images }) as ChatMessage),
         {
           role: 'user' as const,
-          content: paperContext ? text + paperContext : text,
+          content: text,
           images,
         },
       ]
 
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
+      const currentDate = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date())
+      const nextResultSetLabel = nextSearchResultSetLabel(searchResultSets)
       const agentResult = await runResearchAgent({
         userText: text,
         history,
         recentMessages: messages.map((m) => ({ role: m.role, content: m.content, images: m.images }) as ChatMessage),
+        context: {
+          currentDate,
+          timezone,
+          hasLocalPapers: papers.length > 0,
+          localPaperCount: papers.length,
+          activeProjectName: projectName,
+          lastSearchResults,
+          currentPaper,
+          activeSearchResultSetId,
+          recentSearchResultSets: searchResultSets,
+          nextSearchResultSetLabel: nextResultSetLabel,
+        },
+        loadLocalPaperContext: extractPaperContent,
         signal: controller.signal,
       })
       const reply = agentResult.reply
+      const assistantNote = await addResearchNote(projectId, 'assistant', reply)
 
-      await addResearchNote(projectId, 'assistant', reply)
+      if (agentResult.searched && agentResult.searchResults?.length) {
+        const resultSet = {
+          ...(agentResult.searchResultSet ?? fallbackSearchResultSet(text, nextResultSetLabel, agentResult.plan, agentResult.searchResults)),
+          noteId: assistantNote.id,
+        }
+        setSearchResultSets((prev) => [resultSet, ...prev.filter((set) => set.id !== resultSet.id)].slice(0, 10))
+        setActiveSearchResultSetId(resultSet.id)
+        setLastSearchResults(resultSet.results)
+        await addResearchArtifact(projectId, 'search_results', {
+          resultSet,
+          results: resultSet.results,
+          plan: agentResult.plan,
+          traceId: agentResult.trace.id,
+          createdAt: resultSet.createdAt,
+        }, assistantNote.id)
+      }
+
+      if (agentResult.currentPaper) {
+        setCurrentPaper(agentResult.currentPaper)
+        await addResearchArtifact(projectId, 'current_paper', {
+          paper: agentResult.currentPaper,
+          evidenceLevel: agentResult.currentPaperEvidenceLevel,
+          source: agentResult.plan.intent,
+          sourceResultSetId: agentResult.sourceResultSetId ?? agentResult.searchResultSet?.id,
+          createdAt: new Date().toISOString(),
+        }, assistantNote.id)
+      }
+
+      if (agentResult.paperEvidenceNotes?.length) {
+        await addResearchArtifact(projectId, 'paper_preview', {
+          papers: agentResult.paperEvidenceNotes.map((note) => ({
+            paper: note.paper,
+            title: note.paper.title,
+            doi: note.paper.doi,
+            source: note.paper.source,
+            sourceUrl: note.paper.source_url,
+            openAccessUrl: note.paper.open_access_pdf_url ?? note.paper.open_access_url,
+            sourceResultSetId: agentResult.sourceResultSetId ?? agentResult.searchResultSet?.id,
+            evidenceLevel: note.evidenceLevel,
+            cacheHit: note.cacheHit,
+            pdfCacheHit: note.pdfCacheHit,
+            warning: note.warning,
+          })),
+          plan: agentResult.plan,
+          traceId: agentResult.trace.id,
+          createdAt: new Date().toISOString(),
+        }, assistantNote.id)
+      }
+
+      if (agentResult.deepResearchReport) {
+        await addResearchArtifact(projectId, 'deep_research_report', {
+          ...agentResult.deepResearchReport,
+          plan: agentResult.plan,
+          traceId: agentResult.trace.id,
+        }, assistantNote.id)
+      }
 
       setMessages((prev) => [
         ...prev,
@@ -262,7 +515,7 @@ ${paperList}${collectionsInfo}
       abortRef.current = null
       setLoading(false)
     }
-  }, [input, loading, messages, papers, pendingImages, activeProjectId, buildSystemPrompt, extractPaperContent])
+  }, [input, loading, messages, papers, pendingImages, activeProjectId, projects, lastSearchResults, searchResultSets, activeSearchResultSetId, currentPaper, buildSystemPrompt, extractPaperContent])
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort()
@@ -314,6 +567,8 @@ ${paperList}${collectionsInfo}
   }, [messages])
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
+  const activeSearchResultSet = searchResultSets.find((set) => set.id === activeSearchResultSetId) ?? searchResultSets[0]
+  const storageMode = hasTauriInvoke() ? 'SQLite' : 'localStorage'
 
   return (
     <div
@@ -430,6 +685,10 @@ ${paperList}${collectionsInfo}
               {activeProject ? activeProject.name : '深度研究'}
             </span>
             {modelLabel && <span className="t-caption text-[11px]">{modelLabel}</span>}
+            <span className="t-caption text-[11px]">存储 {storageMode}</span>
+            {activeSearchResultSet && (
+              <span className="t-caption text-[11px]">当前结果集 {activeSearchResultSet.label}</span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -574,7 +833,7 @@ ${paperList}${collectionsInfo}
                   {loading && (
                     <div className="flex items-center gap-2 text-ink-mute py-2">
                       <Loader2 size={14} className="animate-spin" />
-                      <span className="t-body-sm">正在阅读论文并分析...</span>
+                      <ThinkingStatus />
                     </div>
                   )}
                 </div>

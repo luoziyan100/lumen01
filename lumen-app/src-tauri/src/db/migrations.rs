@@ -52,7 +52,36 @@ pub fn run(conn: &Connection) -> Result<()> {
         log::info!("迁移 v5: citations 引用关系表创建完成");
     }
 
+    if current < 6 {
+        v6_research_artifacts(conn)?;
+        conn.execute("INSERT INTO _migrations (version) VALUES (6)", [])?;
+        log::info!("迁移 v6: research_artifacts 结构化研究上下文表创建完成");
+    }
+
+    // 自愈保障：有些开发环境可能已记录 v6，但当时的 Tauri 进程没有实际创建表。
+    // 保持幂等，确保结构化 agent state 一定可用。
+    v6_research_artifacts(conn)?;
+
     Ok(())
+}
+
+/// v6: Research artifacts — 持久化搜索结果、当前论文等结构化上下文
+fn v6_research_artifacts(conn: &Connection) -> Result<()> {
+    conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS research_artifacts (
+            id         TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES research_projects(id) ON DELETE CASCADE,
+            note_id    TEXT REFERENCES research_notes(id) ON DELETE SET NULL,
+            type       TEXT NOT NULL,
+            data_json  TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_research_artifacts_project
+            ON research_artifacts(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_artifacts_type
+            ON research_artifacts(project_id, type, created_at);
+    ")
 }
 
 /// v5: 引用关系 — 论文间的引用边

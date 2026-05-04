@@ -4,6 +4,12 @@
 实现窗口：Codex
 对应任务：`2026-05-01-agent-harness-implementation-guide.md` 第一阶段
 
+Status: DONE
+Audience: reviewer | owner | future-codex
+Action: reference-only
+Supersedes: none
+Next: 作为第一阶段实现记录，不是当前待实施 brief。
+
 ## 1. 本次提交前 checkpoint
 
 开始 harness refactor 前，已先提交当前搜索 Agent / 学术搜索 / dev proxy / browser fallback 改动：

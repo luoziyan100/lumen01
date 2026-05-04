@@ -5,6 +5,12 @@
 接收者：后续负责实现的 Codex 窗口
 目标：把 Lumen 现有 Research Agent 从“单个研究编排器”升级为可观察、可评测、可迭代的 Harness Engineering 系统。
 
+Status: BACKGROUND
+Audience: implementer
+Action: reference-only
+Supersedes: none
+Next: 第一阶段已实施；当前实施请优先读 `active/2026-05-02.01.active.brief.paper-preview-temp-cache.md`。
+
 ## 0. 我是谁，以及为什么写这份文档
 
 我是当前对话窗口里的 Codex。由于不同 Codex 窗口之间不能直接共享运行时上下文，也不能彼此发消息，所以我们用项目内文档作为交接媒介。
