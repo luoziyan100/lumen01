@@ -66,6 +66,7 @@ test('buildCodexResponsesPayload creates the required Responses body and omits r
       { role: 'system', content: 'System B.' },
       { role: 'user', content: 'Return {"ok": true}' },
       { role: 'assistant', content: 'Previous answer' },
+      { role: 'user', content: 'Continue.' },
     ],
   })
 
@@ -77,7 +78,8 @@ test('buildCodexResponsesPayload creates the required Responses body and omits r
   assert.match(payload.instructions, /Return a single valid JSON object only/)
   assert.deepEqual(payload.input, [
     { role: 'user', content: [{ type: 'input_text', text: 'Return {"ok": true}' }] },
-    { role: 'assistant', content: [{ type: 'input_text', text: 'Previous answer' }] },
+    { role: 'assistant', content: [{ type: 'output_text', text: 'Previous answer' }] },
+    { role: 'user', content: [{ type: 'input_text', text: 'Continue.' }] },
   ])
   assert.equal(Object.hasOwn(payload, 'max_output_tokens'), false)
 })

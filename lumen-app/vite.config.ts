@@ -140,7 +140,7 @@ interface CodexResponsesPayload {
   instructions: string
   input: Array<{
     role: 'user' | 'assistant'
-    content: Array<{ type: 'input_text'; text: string }>
+    content: Array<{ type: 'input_text' | 'output_text'; text: string }>
   }>
   stream: true
   store: false
@@ -1065,7 +1065,10 @@ export function buildCodexResponsesPayload(request: DevAiChatRequest): CodexResp
   const instructions = `${systemInstructions || "You are Lumen's research assistant. Follow the user request precisely."}${jsonInstruction}`
   const input = messages.filter((message) => message.role !== 'system').map((message) => ({
     role: message.role === 'assistant' ? 'assistant' as const : 'user' as const,
-    content: [{ type: 'input_text' as const, text: message.content }],
+    content: [{
+      type: message.role === 'assistant' ? 'output_text' as const : 'input_text' as const,
+      text: message.content,
+    }],
   }))
 
   return {
