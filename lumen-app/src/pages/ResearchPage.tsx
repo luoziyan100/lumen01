@@ -4,15 +4,13 @@
  * [POS]: pages 模块的深度研究页面，LUI 聊天界面，挂载在 /research 路由
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { type ChatMessage, type ImageData } from '../services/ai'
+import { type ImageData } from '../services/ai'
 import { listPapers, type Paper } from '../services/papers'
 import { loadPdfData } from '../services/files'
 import { getAiConfig, type AiConfig } from '../services/ai-config'
 import { PROVIDERS } from '../services/ai'
 import { runResearchAgent } from '../services/research-agent'
-import type { SearchResult } from '../services/search'
-import type { SearchPlan, SearchResultSet } from '../agent/types'
-import { buildResearchWritebackPlan } from '../agent/writeback'
+import type { AgentMessage } from '../agent/adapters/types'
 import { hasTauriInvoke } from '../services/tauri'
 import {
   createResearchProject,
@@ -20,10 +18,8 @@ import {
   deleteResearchProject,
   addResearchNote,
   listResearchNotes,
-  addResearchArtifact,
-  listResearchArtifacts,
   type ResearchProject,
-  type ResearchArtifact,
+  type ResearchNote,
 } from '../services/research'
 import { listCollections, listCollectionPapers, type Collection } from '../services/collections'
 import { Send, Loader2, Download, Square, Plus, MessageSquare, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -36,123 +32,41 @@ interface DisplayMessage {
   images?: ImageData[]
 }
 
-interface SearchResultsArtifactData {
-  resultSet?: SearchResultSet
-  results?: SearchResult[]
-  plan?: SearchPlan
-  query?: string
-  mode?: SearchResultSet['mode']
-  totalAvailable?: number
-  fetched?: number
-  categories?: string[]
-  fromDate?: string
-  untilDate?: string
-  createdAt?: string
+const AGENT_HISTORY_ROLE = 'agent_history'
+
+function displayMessagesFromNotes(notes: ResearchNote[]): DisplayMessage[] {
+  return notes
+    .filter((note) => note.role === 'user' || note.role === 'assistant')
+    .map((note) => ({
+      id: note.id,
+      role: note.role as 'user' | 'assistant',
+      content: note.content,
+    }))
 }
 
-interface CurrentPaperArtifactData {
-  paper?: SearchResult
-}
-
-function parseArtifactData<T>(artifact: ResearchArtifact | undefined): T | null {
-  if (!artifact) return null
-  try {
-    return JSON.parse(artifact.data_json) as T
-  } catch {
-    return null
-  }
-}
-
-function restoredSearchResults(artifact: ResearchArtifact | undefined): SearchResult[] {
-  const data = parseArtifactData<SearchResultsArtifactData | SearchResult[]>(artifact)
-  if (Array.isArray(data)) return data
-  if (data && typeof data === 'object' && isSearchResultSet((data as SearchResultsArtifactData).resultSet)) {
-    return (data as SearchResultsArtifactData).resultSet!.results
-  }
-  return Array.isArray(data?.results) ? data.results : []
-}
-
-function isSearchResult(value: unknown): value is SearchResult {
+function isAgentMessage(value: unknown): value is AgentMessage {
   return Boolean(
     value
     && typeof value === 'object'
-    && typeof (value as SearchResult).id === 'string'
-    && typeof (value as SearchResult).title === 'string'
-    && Array.isArray((value as SearchResult).authors),
+    && (value as AgentMessage).role
+    && typeof (value as AgentMessage).content === 'string',
   )
 }
 
-function isSearchResultSet(value: unknown): value is SearchResultSet {
-  return Boolean(
-    value
-    && typeof value === 'object'
-    && typeof (value as SearchResultSet).id === 'string'
-    && typeof (value as SearchResultSet).label === 'string'
-    && Array.isArray((value as SearchResultSet).results),
-  )
-}
-
-function restoredSearchResultSet(artifact: ResearchArtifact, index: number): SearchResultSet | null {
-  const data = parseArtifactData<SearchResultsArtifactData | SearchResult[] | SearchResultSet>(artifact)
-  if (isSearchResultSet(data)) {
-    return { ...data, noteId: data.noteId ?? artifact.note_id ?? undefined }
+function agentHistoryFromNotes(notes: ResearchNote[]): AgentMessage[] {
+  const historyNote = [...notes].reverse().find((note) => note.role === AGENT_HISTORY_ROLE)
+  if (historyNote) {
+    try {
+      const parsed = JSON.parse(historyNote.content) as unknown
+      if (Array.isArray(parsed) && parsed.every(isAgentMessage)) return parsed
+    } catch {
+      // Fall back to visible notes below.
+    }
   }
 
-  if (data && !Array.isArray(data) && typeof data === 'object' && isSearchResultSet((data as SearchResultsArtifactData).resultSet)) {
-    const resultSet = (data as SearchResultsArtifactData).resultSet!
-    return { ...resultSet, noteId: resultSet.noteId ?? artifact.note_id ?? undefined }
-  }
-
-  const artifactData = data && !Array.isArray(data) && typeof data === 'object'
-    ? data as SearchResultsArtifactData
-    : null
-  const results = Array.isArray(data) ? data : artifactData?.results
-  if (!Array.isArray(results) || results.length === 0) return null
-
-  const plan = artifactData?.plan ?? {
-    intent: 'academic_search',
-    shouldSearch: true,
-    queries: [],
-  } satisfies SearchPlan
-
-  return {
-    id: `rs-${artifact.id}`,
-    label: `R${index + 1}`,
-    noteId: artifact.note_id ?? undefined,
-    query: artifactData?.query ?? (plan.queries.join('; ') || '历史搜索'),
-    plan,
-    mode: artifactData?.mode ?? plan.searchMode,
-    totalAvailable: artifactData?.totalAvailable,
-    fetched: artifactData?.fetched ?? results.length,
-    categories: artifactData?.categories,
-    fromDate: artifactData?.fromDate ?? plan.timeRange?.fromDate,
-    untilDate: artifactData?.untilDate ?? plan.timeRange?.untilDate,
-    results,
-    createdAt: artifactData?.createdAt ?? artifact.created_at ?? new Date(0).toISOString(),
-  }
-}
-
-function restoredSearchResultSets(artifacts: ResearchArtifact[]): SearchResultSet[] {
-  return artifacts
-    .map((artifact, index) => restoredSearchResultSet(artifact, index))
-    .filter((set): set is SearchResultSet => Boolean(set))
-}
-
-function nextSearchResultSetLabel(sets: SearchResultSet[]): string {
-  const maxLabel = sets.reduce((max, set) => {
-    const parsed = set.label.match(/^R(\d+)$/i)?.[1]
-    return parsed ? Math.max(max, Number(parsed)) : max
-  }, 0)
-  return `R${maxLabel + 1}`
-}
-
-function restoredCurrentPaper(artifact: ResearchArtifact | undefined): SearchResult | null {
-  const data = parseArtifactData<unknown>(artifact)
-  if (isSearchResult(data)) return data
-  if (data && typeof data === 'object' && isSearchResult((data as CurrentPaperArtifactData).paper)) {
-    return (data as CurrentPaperArtifactData).paper ?? null
-  }
-  return null
+  return notes
+    .filter((note) => note.role === 'user' || note.role === 'assistant')
+    .map((note) => ({ role: note.role as 'user' | 'assistant', content: note.content }))
 }
 
 function ThinkingStatus() {
@@ -180,10 +94,7 @@ export function ResearchPage() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [collections, setCollections] = useState<(Collection & { paperIds: string[] })[]>([])
-  const [lastSearchResults, setLastSearchResults] = useState<SearchResult[]>([])
-  const [searchResultSets, setSearchResultSets] = useState<SearchResultSet[]>([])
-  const [activeSearchResultSetId, setActiveSearchResultSetId] = useState<string | undefined>()
-  const [currentPaper, setCurrentPaper] = useState<SearchResult | null>(null)
+  const [agentHistory, setAgentHistory] = useState<AgentMessage[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -218,23 +129,10 @@ export function ResearchPage() {
 
   const loadProject = useCallback(async (projectId: string) => {
     try {
-      const [notes, searchArtifacts, paperArtifacts] = await Promise.all([
-        listResearchNotes(projectId),
-        listResearchArtifacts(projectId, 'search_results', 10),
-        listResearchArtifacts(projectId, 'current_paper', 1),
-      ])
-      const loaded: DisplayMessage[] = notes.map((n) => ({
-        id: n.id,
-        role: (n.role || 'user') as 'user' | 'assistant',
-        content: n.content,
-      }))
-      setMessages(loaded)
+      const notes = await listResearchNotes(projectId)
+      setMessages(displayMessagesFromNotes(notes))
+      setAgentHistory(agentHistoryFromNotes(notes))
       setActiveProjectId(projectId)
-      const restoredSets = restoredSearchResultSets(searchArtifacts)
-      setSearchResultSets(restoredSets)
-      setActiveSearchResultSetId(restoredSets[0]?.id)
-      setLastSearchResults(restoredSets[0]?.results ?? restoredSearchResults(searchArtifacts[0]))
-      setCurrentPaper(restoredCurrentPaper(paperArtifacts[0]))
       setError(null)
       setShowHistory(false)
     } catch (e) {
@@ -248,10 +146,7 @@ export function ResearchPage() {
     setError(null)
     setShowHistory(false)
     setPendingImages([])
-    setLastSearchResults([])
-    setSearchResultSets([])
-    setActiveSearchResultSetId(undefined)
-    setCurrentPaper(null)
+    setAgentHistory([])
     setInput('')
   }, [])
 
@@ -265,42 +160,6 @@ export function ResearchPage() {
       setError(String(err))
     }
   }, [activeProjectId, startNewChat])
-
-  const buildSystemPrompt = useCallback((): string => {
-    const paperList = papers.length > 0
-      ? papers.map((p, i) => `${i + 1}. [id:${p.id}]《${p.title}》${p.authors ? ` — ${p.authors}` : ''}${p.year ? ` (${p.year})` : ''}`).join('\n')
-      : '（文献库为空）'
-
-    let collectionsInfo = ''
-    if (collections.length > 0) {
-      const colList = collections.map((c) => {
-        const colPapers = c.paperIds
-          .map((pid) => papers.find((p) => p.id === pid))
-          .filter(Boolean)
-          .map((p) => `《${p!.title}》`)
-        return `- "${c.name}"（${colPapers.length} 篇）：${colPapers.join('、') || '空集合'}`
-      }).join('\n')
-      collectionsInfo = `\n\n用户的论文集合（Collections）：
-${colList}
-
-当用户提到某个集合名称时，你应该知道该集合包含哪些论文，并可以针对集合内的论文进行分析。`
-    }
-
-    return `你是 Lumen 深度研究助手。你的角色是帮助用户基于他们的论文库进行跨论文的深度研究。
-
-用户的文献库中有以下论文：
-${paperList}${collectionsInfo}
-
-你的能力：
-1. **文献库分析**：阅读用户文献库中的论文，进行综合分析和对比
-2. **学术搜索**：你可以搜索 OpenAlex + arXiv + Semantic Scholar + Crossref 学术数据库来查找论文
-3. **跨论文研究**：综合多篇论文的观点，产出结构化的研究分析
-
-外部学术搜索由系统内部的 Search Agent 负责规划和执行。你不要输出工具调用语法，也不要编造没有出现在上下文中的论文。
-如果用户要求搜索外部论文、询问“结果呢/搜到了吗”，不要口头承诺“稍候”或否认搜索能力；应让 Search Agent 执行搜索。只有当系统明确返回错误时，才说明具体错误。
-
-使用简体中文回复。引用论文时使用《》标注。回复使用 Markdown 格式。`
-  }, [papers, collections])
 
   const extractPaperContent = useCallback(async (userText: string): Promise<string> => {
     const textLower = userText.toLowerCase()
@@ -368,29 +227,17 @@ ${paperList}${collectionsInfo}
     abortRef.current = controller
 
     let projectId = activeProjectId
-    let projectName = activeProjectId ? projects.find((project) => project.id === activeProjectId)?.name : undefined
 
     try {
       if (!projectId) {
         const name = text.length > 30 ? text.slice(0, 30) + '...' : text
         const project = await createResearchProject(name)
         projectId = project.id
-        projectName = project.name
         setActiveProjectId(projectId)
         setProjects((prev) => [project, ...prev])
       }
 
       await addResearchNote(projectId, 'user', text)
-
-      const history: ChatMessage[] = [
-        { role: 'system', content: buildSystemPrompt() },
-        ...messages.map((m) => ({ role: m.role, content: m.content, images: m.images }) as ChatMessage),
-        {
-          role: 'user' as const,
-          content: text,
-          images,
-        },
-      ]
 
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
       const currentDate = new Intl.DateTimeFormat('en-CA', {
@@ -399,49 +246,28 @@ ${paperList}${collectionsInfo}
         month: '2-digit',
         day: '2-digit',
       }).format(new Date())
-      const nextResultSetLabel = nextSearchResultSetLabel(searchResultSets)
       const agentResult = await runResearchAgent({
         userText: text,
-        history,
-        recentMessages: messages.map((m) => ({ role: m.role, content: m.content, images: m.images }) as ChatMessage),
+        images,
+        conversationHistory: agentHistory,
         context: {
           currentDate,
           timezone,
           hasLocalPapers: papers.length > 0,
           localPaperCount: papers.length,
-          activeProjectName: projectName,
-          lastSearchResults,
-          currentPaper,
-          activeSearchResultSetId,
-          recentSearchResultSets: searchResultSets,
-          nextSearchResultSetLabel: nextResultSetLabel,
         },
         loadLocalPaperContext: extractPaperContent,
         signal: controller.signal,
       })
       const reply = agentResult.reply
-      const assistantNote = await addResearchNote(projectId, 'assistant', reply)
-      const writeback = buildResearchWritebackPlan(agentResult, {
-        assistantNoteId: assistantNote.id,
-        query: text,
-        nextSearchResultSetLabel: nextResultSetLabel,
-      })
-
-      if (writeback.state.searchResultSet) {
-        const resultSet = writeback.state.searchResultSet
-        setSearchResultSets((prev) => [resultSet, ...prev.filter((set) => set.id !== resultSet.id)].slice(0, 10))
-        setActiveSearchResultSetId(resultSet.id)
-      }
-      if (writeback.state.lastSearchResults) {
-        setLastSearchResults(writeback.state.lastSearchResults)
-      }
-      if (writeback.state.currentPaper) {
-        setCurrentPaper(writeback.state.currentPaper)
-      }
-
-      for (const artifact of writeback.artifacts) {
-        await addResearchArtifact(projectId, artifact.type, artifact.data, artifact.noteId ?? assistantNote.id)
-      }
+      const nextAgentHistory: AgentMessage[] = [
+        ...agentHistory,
+        { role: 'user', content: text, images },
+        ...agentResult.newMessages,
+      ]
+      await addResearchNote(projectId, 'assistant', reply)
+      await addResearchNote(projectId, AGENT_HISTORY_ROLE, JSON.stringify(nextAgentHistory))
+      setAgentHistory(nextAgentHistory)
 
       setMessages((prev) => [
         ...prev,
@@ -454,7 +280,7 @@ ${paperList}${collectionsInfo}
       abortRef.current = null
       setLoading(false)
     }
-  }, [input, loading, messages, papers, pendingImages, activeProjectId, projects, lastSearchResults, searchResultSets, activeSearchResultSetId, currentPaper, buildSystemPrompt, extractPaperContent])
+  }, [input, loading, papers, pendingImages, activeProjectId, agentHistory, extractPaperContent])
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort()
@@ -506,7 +332,6 @@ ${paperList}${collectionsInfo}
   }, [messages])
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
-  const activeSearchResultSet = searchResultSets.find((set) => set.id === activeSearchResultSetId) ?? searchResultSets[0]
   const storageMode = hasTauriInvoke() ? 'SQLite' : 'localStorage'
 
   return (
@@ -625,9 +450,6 @@ ${paperList}${collectionsInfo}
             </span>
             {modelLabel && <span className="t-caption text-[11px]">{modelLabel}</span>}
             <span className="t-caption text-[11px]">存储 {storageMode}</span>
-            {activeSearchResultSet && (
-              <span className="t-caption text-[11px]">当前结果集 {activeSearchResultSet.label}</span>
-            )}
           </div>
           <div className="flex items-center gap-1">
             <button

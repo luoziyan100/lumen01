@@ -15,17 +15,29 @@ doc/communication/
 
 ## 当前实施入口
 
-当前另一个 Codex 需要读并实施的是：
+当前没有未完成 active brief。
 
-`active/2026-05-05.01.active.brief.openai-codex-oauth-model-proxy.md`
+最新完成的实现记录是：
 
-用途：为 Lumen 本地 dev/testing 增加 OpenAI GPT / OpenClaw `openai-codex` OAuth 模型通道，用最高能力 GPT 模型区分“模型问题”与“架构问题”。
+`review/2026-05-05.02b.done.notes.agent-loop-integration.md`
+
+用途：Agent Loop + Tool Use 已替代正则管道架构，解决“这5篇做报告”等自然语言引用消解失败的根本问题。
+
+对应 active brief 已归档为：
+
+`archive/2026-05-05.02.active.brief.agent-loop-tool-use-refactor.md`
 
 上一份 active brief 已归档为：
 
+`archive/2026-05-05.01.active.brief.openai-codex-oauth-model-proxy.md`
+
+用途：OpenAI GPT / OpenClaw `openai-codex` OAuth dev 模型通道。已完成归档。
+
+再上一份 active brief 已归档为：
+
 `archive/2026-05-03.08.active.brief.reference-binding-crud-fix.md`
 
-用途：用明确 CRUD 指令修复 reference binding 和 ContextPack 裁剪问题，避免旧论文结果集 / stale currentPaper 污染普通对话。当前因模型评测通道优先级更高，暂时放一边；不要和 `.05.01` 同时实施。
+用途：用明确 CRUD 指令修复 reference binding 和 ContextPack 裁剪问题。已被 `.05.02` Agent Loop 重构 supersede——正则修补不解决根本问题。
 
 上一份 active review brief 是：
 
@@ -67,7 +79,10 @@ doc/communication/
 
 | 文件 | 状态 | 给谁看 | 用途 |
 | --- | --- | --- | --- |
-| `active/2026-05-05.01.active.brief.openai-codex-oauth-model-proxy.md` | ACTIVE | 实施窗口 | 增加 OpenAI GPT / OpenClaw `openai-codex` OAuth dev 模型通道，用于区分模型问题与架构问题 |
+| `review/2026-05-05.02b.done.notes.agent-loop-integration.md` | DONE | Review/Owner | Agent Loop + Tool Use 集成完成记录，含 A-E 场景验证 |
+| `review/2026-05-05.02a.done.notes.agent-adapter-layer.md` | DONE | Review/Owner | LLM Adapter Layer 完成记录，含 Claude/OpenAI/ReAct message format 测试 |
+| `archive/2026-05-05.02.active.brief.agent-loop-tool-use-refactor.md` | DONE | 归档 | Agent Loop + Tool Use 原 brief，已完成 |
+| `archive/2026-05-05.01.active.brief.openai-codex-oauth-model-proxy.md` | DONE | 归档 | OpenAI GPT / OpenClaw OAuth dev 模型通道，已完成 |
 | `archive/2026-05-03.08.active.brief.reference-binding-crud-fix.md` | ARCHIVED | Future Codex | 明确 CRUD 修复：强锚点 regex、stale currentPaper、deep_research fallback、ContextPack 裁剪 |
 | `review/2026-05-03.04.done.notes.result-set-memory-artifact-retrieval.md` | DONE | Review/Owner | Result Set Memory、Artifact Retrieval、跨轮结果集引用完成记录，等待 review |
 | `review/2026-05-03.03.done.notes.search-modes-arxiv-recent-feed.md` | DONE | Review/Owner | Search Modes、arXiv recent AI feed、分类 + 日期枚举搜索完成记录，等待 review |
@@ -91,7 +106,7 @@ doc/communication/
 | `archive/2026-05-01-agent-search-routing-implementation-brief.md` | SUPERSEDED | Future Codex | 第二阶段任务原始 brief，已由完成记录取代 |
 | `archive/2026-05-01-agent-harness-implementation-guide.md` | BACKGROUND | Future Codex | 第一阶段 harness 拆分的原始交接说明 |
 
-如果只给另一个 Codex 一个文件，请给 `active/` 里的 `ACTIVE` 那份。
+如果只给另一个 Codex 一个文件，优先给最新的 `review/` 完成记录；只有存在未完成任务时才给 `active/` 里的 `ACTIVE` brief。
 
 ## 命名规范
 
