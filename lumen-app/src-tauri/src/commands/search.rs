@@ -381,6 +381,10 @@ fn compact_date_for_arxiv(date: &str, end_of_day: bool) -> String {
     format!("{}{}{}{}", y, m, d, if end_of_day { "2359" } else { "0000" })
 }
 
+fn academic_search_timeout() -> Duration {
+    Duration::from_secs(45)
+}
+
 fn default_arxiv_categories(preset: Option<&str>) -> Vec<String> {
     let values: &[&str] = match preset {
         Some("llm") => &["cs.CL", "cs.AI", "cs.LG"],
@@ -1212,7 +1216,7 @@ async fn search_arxiv_feed(
     from_date: &str,
     until_date: &str,
     limit: i32,
-) -> (i32, Vec<SearchResult>) {
+) -> Result<(i32, Vec<SearchResult>), String> {
     let category_query = categories
         .iter()
         .map(|category| format!("cat:{}", category))
@@ -1239,25 +1243,28 @@ async fn search_arxiv_feed(
             max_results,
         );
 
-        let resp = match client.get(&url).send().await {
-            Ok(r) => r,
-            Err(e) => {
-                log::warn!("arXiv feed 请求失败: {}", e);
-                break;
-            }
-        };
-        let body = match resp.text().await {
-            Ok(b) => b,
-            Err(e) => {
-                log::warn!("arXiv feed 读取失败: {}", e);
-                break;
-            }
-        };
-
-        if total_available == 0 {
-            total_available = parse_arxiv_total_results(&body).unwrap_or(0);
+        let resp = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("arXiv feed 请求失败: {}", e))?;
+        let status = resp.status();
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| format!("arXiv feed 读取失败: {}", e))?;
+        if !status.is_success() {
+            return Err(format!(
+                "arXiv feed 请求失败：HTTP {}: {}",
+                status,
+                body.chars().take(240).collect::<String>()
+            ));
         }
-        let page_results = parse_arxiv_xml(&body);
+
+        let (page_total, page_results) = parse_arxiv_feed_page(&body)?;
+        if total_available == 0 {
+            total_available = page_total;
+        }
         if page_results.is_empty() {
             break;
         }
@@ -1265,7 +1272,7 @@ async fn search_arxiv_feed(
         results.extend(page_results);
     }
 
-    (total_available, results)
+    Ok((total_available, results))
 }
 
 fn parse_arxiv_total_results(xml: &str) -> Option<i32> {
@@ -1278,6 +1285,18 @@ fn parse_arxiv_total_results(xml: &str) -> Option<i32> {
             Some(xml[from..end].trim())
         })?;
     value.parse::<i32>().ok()
+}
+
+fn parse_arxiv_feed_page(xml: &str) -> Result<(i32, Vec<SearchResult>), String> {
+    let total_available = parse_arxiv_total_results(xml).unwrap_or(0);
+    let results = parse_arxiv_xml(xml);
+    if total_available > 0 && results.is_empty() {
+        return Err(format!(
+            "arXiv feed 返回 totalResults={}，但没有解析到任何 entry；这更像是响应解析失败，不应当当作空结果。",
+            total_available
+        ));
+    }
+    Ok((total_available, results))
 }
 
 fn parse_arxiv_xml(xml: &str) -> Vec<SearchResult> {
@@ -1450,7 +1469,7 @@ pub async fn search_papers(
     let mode = options.search_mode.as_deref().unwrap_or("keyword_search");
     let per_source = ((requested_limit + 3) / 4).max(4).min(15);
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(14))
+        .timeout(academic_search_timeout())
         .user_agent("Lumen/0.1 (mailto:zluo5820@gmail.com)")
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
@@ -1467,7 +1486,7 @@ pub async fn search_papers(
             .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
         let feed_limit = options.feed_limit.unwrap_or(limit.unwrap_or(50)).clamp(1, 200);
         let (total_available, mut results) =
-            search_arxiv_feed(&client, &categories, &from_date, &until_date, feed_limit).await;
+            search_arxiv_feed(&client, &categories, &from_date, &until_date, feed_limit).await?;
         let tokens = query_tokens(&query);
         results = results
             .into_iter()
@@ -1669,6 +1688,26 @@ mod tests {
 </feed>"#;
         let results = parse_arxiv_xml(xml);
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn academic_search_timeout_allows_slow_arxiv_feed() {
+        assert!(
+            academic_search_timeout() >= Duration::from_secs(30),
+            "arXiv feed can take more than 14s even for tiny result pages"
+        );
+    }
+
+    #[test]
+    fn arxiv_feed_page_with_total_but_no_entries_is_error() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns="http://www.w3.org/2005/Atom">
+  <opensearch:totalResults>2204</opensearch:totalResults>
+</feed>"#;
+
+        let result = parse_arxiv_feed_page(xml);
+
+        assert!(result.is_err(), "nonzero arXiv total without parsed entries should not become an empty successful feed");
     }
 
     // ---- 合并搜索 ----

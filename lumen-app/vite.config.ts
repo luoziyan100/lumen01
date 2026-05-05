@@ -123,6 +123,7 @@ interface DevAnthropicResponse {
 
 const MAX_PREVIEW_PDF_BYTES = 50 * 1024 * 1024
 const MAX_PUBLIC_HTML_BYTES = 2 * 1024 * 1024
+const ACADEMIC_SEARCH_TIMEOUT_MS = 45_000
 const BLOCKED_PUBLIC_HOSTS = [
   'sci-hub',
   'libgen',
@@ -591,6 +592,24 @@ function parseArxivTotalResults(xml: string): number {
   return match ? Number(match[1]) : 0
 }
 
+async function fetchSearchText(url: string): Promise<string> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(ACADEMIC_SEARCH_TIMEOUT_MS) })
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(`Search request failed (${response.status}): ${text.slice(0, 240)}`)
+  }
+  return text
+}
+
+function parseArxivFeedPage(xml: string): { totalAvailable: number; results: DevSearchResult[] } {
+  const totalAvailable = parseArxivTotalResults(xml)
+  const results = parseArxivXml(xml)
+  if (totalAvailable > 0 && results.length === 0) {
+    throw new Error(`arXiv feed returned totalResults=${totalAvailable}, but no entries were parsed; treating this as a feed parsing failure instead of an empty result set.`)
+  }
+  return { totalAvailable, results }
+}
+
 async function searchArxiv(query: string, limit: number, options: DevSearchOptions): Promise<DevSearchResult[]> {
   const params = new URLSearchParams({
     search_query: `all:${query}`,
@@ -600,7 +619,7 @@ async function searchArxiv(query: string, limit: number, options: DevSearchOptio
   })
   if (options.sortMode === 'newest') params.set('sortOrder', 'descending')
   const url = `https://export.arxiv.org/api/query?${params.toString()}`
-  const xml = await fetch(url).then((res) => res.text())
+  const xml = await fetchSearchText(url)
   return parseArxivXml(xml).filter((result) => isWithinDateRange(result, options))
 }
 
@@ -625,9 +644,10 @@ async function searchArxivFeed(
       sortBy: 'submittedDate',
       sortOrder: 'descending',
     })
-    const xml = await fetch(`https://export.arxiv.org/api/query?${params.toString()}`).then((res) => res.text())
-    if (totalAvailable === 0) totalAvailable = parseArxivTotalResults(xml)
-    const page = parseArxivXml(xml)
+    const xml = await fetchSearchText(`https://export.arxiv.org/api/query?${params.toString()}`)
+    const feedPage = parseArxivFeedPage(xml)
+    if (totalAvailable === 0) totalAvailable = feedPage.totalAvailable
+    const page = feedPage.results
     if (page.length === 0) break
     results.push(...page)
     start += page.length
