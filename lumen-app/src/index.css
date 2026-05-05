@@ -219,6 +219,7 @@ a:hover { border-bottom-color: var(--color-moss); }
   font: var(--w-regular) var(--t-body-sm)/var(--lh-body-sm) var(--font-sans);
   color: var(--color-ink-soft);
   word-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 .markdown-body h1,
 .markdown-body h2,
@@ -239,10 +240,22 @@ a:hover { border-bottom-color: var(--color-moss); }
   margin: 0.4em 0;
   padding-left: 1.4em;
 }
+.markdown-body ul.contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
 .markdown-body li { margin: 0.2em 0; }
 .markdown-body li > p { margin: 0; }
+.markdown-body input[type="checkbox"] {
+  margin: 0 6px 0 0;
+  accent-color: var(--color-moss);
+}
 .markdown-body strong { font-weight: var(--w-semi); color: var(--color-ink); }
 .markdown-body em { font-style: italic; }
+.markdown-body del {
+  color: var(--color-ink-mute);
+  text-decoration-color: var(--color-ink-faint);
+}
 .markdown-body code {
   font-family: var(--font-mono);
   font-size: var(--t-mono);
@@ -262,6 +275,7 @@ a:hover { border-bottom-color: var(--color-moss); }
   padding: 0;
   font-size: var(--t-mono);
   line-height: var(--lh-mono);
+  white-space: pre;
 }
 .markdown-body blockquote {
   margin: 0.5em 0;
@@ -274,27 +288,76 @@ a:hover { border-bottom-color: var(--color-moss); }
   border-top: 1px solid var(--color-sand);
   margin: 0.8em 0;
 }
-.markdown-body table {
-  border-collapse: collapse;
+.markdown-table-scroll {
+  max-width: 100%;
   margin: 0.5em 0;
-  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.markdown-table-scroll > table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
   font-size: var(--t-mono);
 }
-.markdown-body th, .markdown-body td {
+.markdown-table-scroll th, .markdown-table-scroll td {
   border: 1px solid var(--color-sand);
   padding: 4px 8px;
   text-align: left;
+  vertical-align: top;
+  min-width: 96px;
+  max-width: 320px;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
-.markdown-body th {
+.markdown-table-scroll th {
   background: var(--color-vellum);
   font-weight: var(--w-medium);
+}
+.markdown-body .katex-display {
+  max-width: 100%;
+  margin: 0.6em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25em 0;
+  -webkit-overflow-scrolling: touch;
+}
+.markdown-body .katex-display > .katex {
+  display: inline-block;
+  min-width: max-content;
+  white-space: normal;
+}
+.markdown-body .katex {
+  font-size: 1em;
+}
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.6em 0;
+  border-radius: var(--radius-sm);
 }
 .markdown-body a {
   color: var(--color-moss);
   border-bottom: 1px solid transparent;
+  overflow-wrap: anywhere;
 }
 .markdown-body a:hover {
   border-bottom-color: var(--color-moss);
+}
+.markdown-body .footnotes {
+  margin-top: 1em;
+  padding-top: 0.5em;
+  border-top: 1px solid var(--color-sand);
+  font-size: var(--t-caption);
+  color: var(--color-ink-mute);
+}
+.markdown-body .footnotes ol {
+  padding-left: 1.3em;
+}
+.markdown-body .data-footnote-backref {
+  margin-left: 4px;
 }
 
 /* ---- Scrollbars --------------------------------------------------------- */

@@ -1,8 +1,13 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { fileURLToPath } from 'node:url'
+
+const projectDir = path.dirname(fileURLToPath(import.meta.url))
 
 interface DevSearchAuthor {
   name: string
@@ -120,6 +125,29 @@ interface DevOpenAIResponse {
 interface DevAnthropicResponse {
   content?: Array<{ text?: string }>
 }
+
+interface OpenClawCodexProfile {
+  id?: string
+  provider?: string
+  type?: string
+  email?: string
+  access?: string
+  expires?: string | number | null
+}
+
+interface CodexResponsesPayload {
+  model: string
+  instructions: string
+  input: Array<{
+    role: 'user' | 'assistant'
+    content: Array<{ type: 'input_text'; text: string }>
+  }>
+  stream: true
+  store: false
+  reasoning: { effort: 'none' }
+}
+
+type CodexFetch = (url: string, init: RequestInit & { headers: Record<string, string> }) => Promise<Response>
 
 const MAX_PREVIEW_PDF_BYTES = 50 * 1024 * 1024
 const MAX_PUBLIC_HTML_BYTES = 2 * 1024 * 1024
@@ -926,6 +954,208 @@ function buildDevAnthropicMessages(messages: DevChatMessage[]): unknown[] {
   })
 }
 
+function openClawAuthProfilesPath(): string {
+  const stateDir = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), '.openclaw')
+  const agentId = process.env.LUMEN_OPENCLAW_AGENT_ID || 'main'
+  return path.join(stateDir, 'agents', agentId, 'agent', 'auth-profiles.json')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function coerceProfile(value: unknown, id?: string): OpenClawCodexProfile | null {
+  if (!isRecord(value)) return null
+  return {
+    id: typeof value.id === 'string' ? value.id : id,
+    provider: typeof value.provider === 'string' ? value.provider : undefined,
+    type: typeof value.type === 'string' ? value.type : undefined,
+    email: typeof value.email === 'string' ? value.email : undefined,
+    access: typeof value.access === 'string' ? value.access : undefined,
+    expires: typeof value.expires === 'string' || typeof value.expires === 'number' ? value.expires : null,
+  }
+}
+
+function normalizeOpenClawProfiles(raw: unknown): OpenClawCodexProfile[] {
+  if (Array.isArray(raw)) return raw.flatMap((profile) => coerceProfile(profile) ?? [])
+  if (!isRecord(raw)) return []
+  if (Array.isArray(raw.profiles)) return raw.profiles.flatMap((profile) => coerceProfile(profile) ?? [])
+  if (isRecord(raw.profiles)) {
+    return Object.entries(raw.profiles).flatMap(([id, profile]) => coerceProfile(profile, id) ?? [])
+  }
+  return Object.entries(raw).flatMap(([id, profile]) => coerceProfile(profile, id) ?? [])
+}
+
+function isUnexpiredProfile(profile: OpenClawCodexProfile, now: Date): boolean {
+  if (!profile.expires) return true
+  const expiresMs = typeof profile.expires === 'number'
+    ? (profile.expires < 1_000_000_000_000 ? profile.expires * 1000 : profile.expires)
+    : Date.parse(profile.expires)
+  return Number.isFinite(expiresMs) && expiresMs > now.getTime()
+}
+
+function usableOpenClawCodexProfile(profile: OpenClawCodexProfile, now: Date): boolean {
+  return profile.provider === 'openai-codex'
+    && profile.type === 'oauth'
+    && Boolean(profile.access)
+    && isUnexpiredProfile(profile, now)
+}
+
+export function selectOpenClawCodexProfile(
+  profiles: OpenClawCodexProfile[],
+  selector = '',
+  now = new Date(),
+): OpenClawCodexProfile {
+  const trimmedSelector = selector.trim()
+  const lowerSelector = trimmedSelector.toLowerCase()
+  const profileIdFromEmail = `openai-codex:${trimmedSelector}`
+  const usableProfiles = profiles.filter((profile) => usableOpenClawCodexProfile(profile, now))
+  const selected = trimmedSelector
+    ? usableProfiles.find((profile) => profile.id === trimmedSelector
+      || profile.id === profileIdFromEmail
+      || profile.email?.toLowerCase() === lowerSelector)
+    : usableProfiles[0]
+
+  if (!selected) {
+    throw new Error('No usable OpenClaw openai-codex OAuth profile found. Run: openclaw models auth login --provider openai-codex')
+  }
+
+  return selected
+}
+
+function selectOpenClawCodexProfiles(
+  profiles: OpenClawCodexProfile[],
+  selector = '',
+  now = new Date(),
+): OpenClawCodexProfile[] {
+  const trimmedSelector = selector.trim()
+  if (trimmedSelector) return [selectOpenClawCodexProfile(profiles, trimmedSelector, now)]
+  const usableProfiles = profiles.filter((profile) => usableOpenClawCodexProfile(profile, now))
+  if (!usableProfiles.length) {
+    throw new Error('No usable OpenClaw openai-codex OAuth profile found. Run: openclaw models auth login --provider openai-codex')
+  }
+  return usableProfiles
+}
+
+function resolveOpenClawCodexProfiles(selector?: string): OpenClawCodexProfile[] {
+  const profilePath = openClawAuthProfilesPath()
+  let raw: string
+  try {
+    raw = fs.readFileSync(profilePath, 'utf8')
+  } catch {
+    throw new Error('No usable OpenClaw openai-codex OAuth profile found. Run: openclaw models auth login --provider openai-codex')
+  }
+  return selectOpenClawCodexProfiles(normalizeOpenClawProfiles(JSON.parse(raw)), selector)
+}
+
+export function buildCodexResponsesPayload(request: DevAiChatRequest): CodexResponsesPayload {
+  const messages = request.messages ?? []
+  if (messages.some((message) => message.images?.length)) {
+    throw new Error('openai-codex dev proxy does not support image inputs yet')
+  }
+
+  const systemInstructions = messages
+    .filter((message) => message.role === 'system')
+    .map((message) => message.content.trim())
+    .filter(Boolean)
+    .join('\n\n')
+  const jsonInstruction = request.responseFormat === 'json'
+    ? '\n\nReturn a single valid JSON object only. Do not wrap it in markdown.'
+    : ''
+  const instructions = `${systemInstructions || "You are Lumen's research assistant. Follow the user request precisely."}${jsonInstruction}`
+  const input = messages.filter((message) => message.role !== 'system').map((message) => ({
+    role: message.role === 'assistant' ? 'assistant' as const : 'user' as const,
+    content: [{ type: 'input_text' as const, text: message.content }],
+  }))
+
+  return {
+    model: request.model?.trim() || 'gpt-5.5',
+    instructions,
+    input,
+    stream: true,
+    store: false,
+    reasoning: { effort: 'none' },
+  }
+}
+
+export function parseCodexResponsesSse(text: string): string {
+  let output = ''
+  let doneText = ''
+  for (const block of text.split(/\r?\n\r?\n/)) {
+    const data = block
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim())
+      .join('\n')
+    if (!data || data === '[DONE]') continue
+
+    try {
+      const event = JSON.parse(data) as { type?: string; delta?: string; text?: string }
+      if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
+        output += event.delta
+      }
+      if (event.type === 'response.output_text.done' && typeof event.text === 'string') {
+        doneText = event.text
+      }
+    } catch {
+      // Ignore non-JSON SSE data blocks.
+    }
+  }
+  return output || doneText
+}
+
+function redactSecret(value: string, secret?: string): string {
+  if (!secret) return value
+  return value.split(secret).join('[redacted]')
+}
+
+function isCodexUsageLimitError(status: number, body: string): boolean {
+  if (status !== 429) return false
+  try {
+    const parsed = JSON.parse(body) as { error?: { type?: string } }
+    return parsed.error?.type === 'usage_limit_reached'
+  } catch {
+    return body.includes('usage_limit_reached')
+  }
+}
+
+export async function callCodexResponsesWithProfiles(
+  request: DevAiChatRequest,
+  profiles: OpenClawCodexProfile[],
+  selector = '',
+  fetchImpl: CodexFetch = fetch,
+): Promise<string> {
+  const selectedProfiles = selectOpenClawCodexProfiles(profiles, selector)
+  const payload = buildCodexResponsesPayload(request)
+  let lastError: Error | null = null
+
+  for (const profile of selectedProfiles) {
+    const response = await fetchImpl('https://chatgpt.com/backend-api/codex/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${profile.access}`,
+      },
+      body: JSON.stringify(payload),
+    })
+
+    const body = await response.text()
+    if (response.ok) return parseCodexResponsesSse(body)
+
+    lastError = new Error(`OpenAI Codex OAuth request failed (${response.status}): ${redactSecret(body, profile.access)}`)
+    if (selector.trim() || !isCodexUsageLimitError(response.status, body)) {
+      throw lastError
+    }
+  }
+
+  if (lastError) throw lastError
+  throw new Error('No usable OpenClaw openai-codex OAuth profile found. Run: openclaw models auth login --provider openai-codex')
+}
+
+async function callDevOpenAICodex(request: DevAiChatRequest): Promise<string> {
+  return callCodexResponsesWithProfiles(request, resolveOpenClawCodexProfiles(request.apiKey), request.apiKey)
+}
+
 async function callDevOpenAICompat(request: DevAiChatRequest, endpoint: string): Promise<string> {
   const model = request.model?.trim()
   if (!model) throw new Error('Missing model')
@@ -989,14 +1219,20 @@ async function handleAiChat(req: IncomingMessage, res: ServerResponse, next: () 
 
   try {
     const request = JSON.parse(await readBody(req)) as DevAiChatRequest
-    if (!request.provider || !request.apiKey || !Array.isArray(request.messages)) {
-      writeJson(res, 400, { error: 'Missing provider, apiKey, or messages' })
+    if (!request.provider || !Array.isArray(request.messages)) {
+      writeJson(res, 400, { error: 'Missing provider or messages' })
+      return
+    }
+    if (request.provider !== 'openai-codex' && !request.apiKey) {
+      writeJson(res, 400, { error: 'Missing apiKey' })
       return
     }
 
     let content: string
     if (request.provider === 'anthropic') {
       content = await callDevAnthropic(request)
+    } else if (request.provider === 'openai-codex') {
+      content = await callDevOpenAICodex(request)
     } else if (request.provider === 'openai') {
       content = await callDevOpenAICompat(request, 'https://api.openai.com/v1/chat/completions')
     } else if (request.provider === 'deepseek') {
@@ -1030,7 +1266,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), devSearchApiPlugin()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(projectDir, './src'),
     },
   },
   clearScreen: false,

@@ -742,7 +742,7 @@ ${paperList}${collectionsInfo}
                   {messages.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div
-                        className={`max-w-[85%] px-4 py-3 rounded-[var(--radius-md)] text-ink ${
+                        className={`max-w-[85%] min-w-0 px-4 py-3 rounded-[var(--radius-md)] text-ink ${
                           msg.role === 'user' ? 't-body-sm whitespace-pre-wrap leading-relaxed' : ''
                         }`}
                         style={{

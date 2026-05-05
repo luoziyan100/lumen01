@@ -14,7 +14,7 @@ export interface AiConfig {
 
 export interface SaveAiConfigInput {
   provider: string
-  api_key: string
+  api_key?: string
   default_model?: string
   is_default?: boolean
 }
@@ -37,19 +37,21 @@ function writeConfigs(configs: Record<string, AiConfig>): void {
 }
 
 export async function saveAiConfig(input: SaveAiConfigInput): Promise<void> {
+  const normalizedInput = { ...input, api_key: input.api_key ?? '' }
+
   if (hasTauriInvoke()) {
-    return invokeTauri<void>('save_ai_config', { input })
+    return invokeTauri<void>('save_ai_config', { input: normalizedInput })
   }
 
   const configs = readConfigs()
-  const isDefault = input.is_default ?? Object.keys(configs).length === 0
+  const isDefault = normalizedInput.is_default ?? Object.keys(configs).length === 0
   const updated = Object.fromEntries(
     Object.entries(configs).map(([key, value]) => [key, { ...value, is_default: isDefault ? false : value.is_default }]),
   )
-  updated[input.provider] = {
-    provider: input.provider,
-    api_key: input.api_key,
-    default_model: input.default_model ?? null,
+  updated[normalizedInput.provider] = {
+    provider: normalizedInput.provider,
+    api_key: normalizedInput.api_key,
+    default_model: normalizedInput.default_model ?? null,
     is_default: isDefault,
   }
   writeConfigs(updated)

@@ -17,17 +17,18 @@ export function SettingsPage() {
   const [existing, setExisting] = useState<AiConfig | null>(null)
 
   const providerDef = PROVIDERS.find((p) => p.id === provider)
+  const isOpenAICodex = provider === 'openai-codex'
 
   useEffect(() => {
     getAiConfig(provider).then((config) => {
       setExisting(config)
       setApiKey(config?.api_key ?? '')
-      setModel(config?.default_model ?? '')
+      setModel(config?.default_model ?? (provider === 'openai-codex' ? 'gpt-5.5' : ''))
     })
   }, [provider])
 
   const handleSave = useCallback(async () => {
-    if (!apiKey.trim()) return
+    if (provider !== 'openai-codex' && !apiKey.trim()) return
     setSaving(true)
     try {
       await saveAiConfig({
@@ -43,7 +44,7 @@ export function SettingsPage() {
     }
   }, [provider, apiKey, model])
 
-  const maskedKey = existing?.api_key
+  const maskedKey = existing?.api_key && !isOpenAICodex
     ? existing.api_key.slice(0, 6) + '••••••' + existing.api_key.slice(-4)
     : null
 
@@ -54,7 +55,7 @@ export function SettingsPage() {
       <section className="mt-8 max-w-lg">
         <h2>AI 模型配置</h2>
         <p className="t-body-sm mt-1">
-          配置 AI 提供商的 API Key 和默认模型
+          配置 AI 提供商的连接方式和默认模型
         </p>
 
         <div className="mt-6 flex flex-col gap-5">
@@ -79,25 +80,32 @@ export function SettingsPage() {
             </div>
           </div>
 
-          {/* API Key */}
+          {/* API Key / OpenClaw profile */}
           <div>
-            <label className="t-caption block mb-1.5">API Key</label>
+            <label className="t-caption block mb-1.5">
+              {isOpenAICodex ? 'OpenClaw Profile（可选，不是 API Key）' : 'API Key'}
+            </label>
             {maskedKey && apiKey === existing?.api_key && (
               <p className="t-mono text-[11px] mb-1.5">
                 当前: {maskedKey}
               </p>
             )}
             <input
-              type="password"
+              type={provider === 'openai-codex' ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder={providerDef?.placeholder}
+              placeholder={isOpenAICodex ? '留空使用默认已授权的 openai-codex profile；也可填 profile id/email' : providerDef?.placeholder}
               className="w-full px-3 py-2 rounded-[var(--radius-sm)] border border-sand t-body focus:border-ember outline-none"
               style={{
                 background: 'var(--color-vellum)',
                 transition: 'border-color var(--dur-fast) var(--ease-out)',
               }}
             />
+            {isOpenAICodex && (
+              <p className="t-caption mt-1">
+                使用 OpenClaw 本机 OAuth：openclaw models auth login --provider openai-codex
+              </p>
+            )}
           </div>
 
           {/* 模型 ID */}
@@ -142,7 +150,7 @@ export function SettingsPage() {
           <div>
             <button
               onClick={handleSave}
-              disabled={saving || !apiKey.trim()}
+              disabled={saving || (provider !== 'openai-codex' && !apiKey.trim())}
               className="flex items-center gap-2 px-4 py-2 rounded-[var(--radius-sm)] text-white font-medium cursor-pointer disabled:opacity-50 disabled:cursor-default"
               style={{
                 background: 'var(--color-ember)',

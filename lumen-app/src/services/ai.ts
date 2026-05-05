@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 ai-config service
+ * [INPUT]: 依赖 ai-config service 和 tauri 环境检测
  * [OUTPUT]: 对外提供 chatWithAI, PROVIDERS, ChatMessage, ImageData 类型
  * [POS]: services 层的 AI 对话，支持多提供商 API / 图片 / 中断，被 AI 面板和翻译浮层消费
  */
@@ -44,6 +44,7 @@ export interface ChatOptions {
 
 export const PROVIDERS: ProviderDef[] = [
   { id: 'openai', name: 'OpenAI', modelHint: 'gpt-4o-mini', placeholder: 'sk-...' },
+  { id: 'openai-codex', name: 'OpenAI GPT OAuth', modelHint: 'gpt-5.5', placeholder: 'OpenClaw profile id（可选）' },
   { id: 'deepseek', name: 'DeepSeek', modelHint: 'deepseek-chat', placeholder: 'sk-...' },
   { id: 'anthropic', name: 'Claude', modelHint: 'claude-sonnet-4-20250514', placeholder: 'sk-ant-...' },
   { id: 'custom', name: '自定义', modelHint: '', placeholder: 'API Key' },
@@ -220,11 +221,15 @@ export async function chatWithAI(
     ? { provider: providerOrOptions, signal }
     : { ...(providerOrOptions ?? {}), signal: providerOrOptions?.signal ?? signal }
   const config = await getAiConfig(options.provider)
-  if (!config?.api_key) {
+  if (!config) {
+    throw new Error('请先在设置中配置 AI 模型')
+  }
+  if (config.provider !== 'openai-codex' && !config.api_key) {
     throw new Error('请先在设置中配置 AI API Key')
   }
 
   const model = options.model || config.default_model || PROVIDERS.find((p) => p.id === config.provider)?.modelHint || ''
+  const apiKey = config.api_key ?? ''
 
   if (!hasTauriInvoke()) {
     if (config.provider === 'custom') {
@@ -233,19 +238,23 @@ export async function chatWithAI(
       if (!customEndpoint) {
         throw new Error('自定义提供商需要在模型字段填写 API 端点 URL（格式：URL 或 URL|模型名）')
       }
-      return callDevAiProxy(config.provider, config.api_key, options.model || customModel, messages, customEndpoint, options)
+      return callDevAiProxy(config.provider, apiKey, options.model || customModel, messages, customEndpoint, options)
     }
 
-    return callDevAiProxy(config.provider, config.api_key, model, messages, undefined, options)
+    return callDevAiProxy(config.provider, apiKey, model, messages, undefined, options)
+  }
+
+  if (config.provider === 'openai-codex') {
+    throw new Error('OpenAI Codex OAuth 暂只支持本地 dev server 测试，请使用 http://127.0.0.1:5173/。')
   }
 
   if (config.provider === 'anthropic') {
-    return callAnthropic(config.api_key, model, messages, options)
+    return callAnthropic(apiKey, model, messages, options)
   }
 
   const endpoint = OPENAI_COMPAT_ENDPOINTS[config.provider]
   if (endpoint) {
-    return callOpenAICompat(endpoint, config.api_key, model, messages, options)
+    return callOpenAICompat(endpoint, apiKey, model, messages, options)
   }
 
   if (config.provider === 'custom') {
@@ -254,7 +263,7 @@ export async function chatWithAI(
     if (!endpoint) {
       throw new Error('自定义提供商需要在模型字段填写 API 端点 URL（格式：URL 或 URL|模型名）')
     }
-    return callOpenAICompat(endpoint, config.api_key, options.model || customModel, messages, options)
+    return callOpenAICompat(endpoint, apiKey, options.model || customModel, messages, options)
   }
 
   throw new Error(`不支持的 AI 提供商: ${config.provider}`)
@@ -266,18 +275,26 @@ export async function chatWithAgentModel(
   signal?: AbortSignal,
 ): Promise<string> {
   const config = await getAiConfig()
-  if (!config?.api_key) {
+  if (!config) {
+    throw new Error('请先在设置中配置 AI 模型')
+  }
+  if (config.provider !== 'openai-codex' && !config.api_key) {
     throw new Error('请先在设置中配置 AI API Key')
   }
+  const roleOptions = AGENT_ROLE_OPTIONS[role]
 
-  if (config.provider !== 'deepseek') {
-    return chatWithAI(messages, undefined, signal)
+  if (config.provider === 'deepseek') {
+    return chatWithAI(messages, {
+      ...roleOptions,
+      provider: 'deepseek',
+      model: DEEPSEEK_ROLE_MODELS[role],
+      signal,
+    })
   }
 
   return chatWithAI(messages, {
-    ...AGENT_ROLE_OPTIONS[role],
-    provider: 'deepseek',
-    model: DEEPSEEK_ROLE_MODELS[role],
+    ...roleOptions,
+    provider: config.provider,
     signal,
   })
 }

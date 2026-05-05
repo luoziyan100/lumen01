@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test:codex": "node --experimental-strip-types --test tests/openai-codex-oauth.test.ts",
+    "test:markdown": "node --experimental-strip-types --test tests/markdown-table-layout.test.ts",
     "research:judge": "node --experimental-strip-types scripts/research-judgment-cli.ts",
     "test:research": "node --experimental-strip-types --test tests/research-judgment.test.ts",
     "preview": "vite preview"
@@ -16,6 +18,7 @@
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-fs": "^2.5.0",
+    "katex": "^0.16.45",
     "lucide-react": "^1.8.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.2.4",
@@ -23,7 +26,9 @@
     "react-force-graph-2d": "^1.29.1",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.14.1",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "tailwindcss": "^4.2.2"
   },
   "devDependencies": {
