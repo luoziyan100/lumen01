@@ -25,10 +25,11 @@ export function ReaderPage() {
   useEffect(() => {
     if (!id) return
     let cancelled = false
-    setLoadingPaper(true)
-    setError(null)
 
-    ;(async () => {
+    Promise.resolve().then(async () => {
+      if (cancelled) return
+      setLoadingPaper(true)
+      setError(null)
       try {
         const paper = await getPaper(id)
         const bytes = await loadPdfData(paper.file_path)
@@ -42,7 +43,7 @@ export function ReaderPage() {
       } finally {
         if (!cancelled) setLoadingPaper(false)
       }
-    })()
+    })
 
     return () => {
       cancelled = true

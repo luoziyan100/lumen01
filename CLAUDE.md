@@ -62,8 +62,10 @@ lumen/
 │   │   ├── ai/                 # AI Provider 适配层
 │   │   ├── pdf.ts              # PDF 服务
 │   │   └── db.ts               # 数据库服务
+│   ├── agent/                  # Research Harness：规划、工具、证据、研究判断、运行时 trace
 │   ├── store/                  # 状态管理
 │   └── styles/                 # 对接 Lumen Design System
+├── doc/                        # 项目文档：通信交接、评分标准、长期规范
 ├── CLAUDE.md                   # ← 你在这里（L1 项目宪法）
 └── PRD_v0.1.md                 # 产品需求文档
 ```
@@ -143,6 +145,8 @@ lumen/
 - 论文内容提取：pdfjs 提取文本（前 15 页，每篇 max 6000 字符）
 - 系统提示词包含用户文献库列表
 - Markdown 导出研究报告
+- Research Judgment：可识别“论文集合 + 系统瓶颈 + Lumen 借鉴排序”类评测输入，输出选题判断而不是论文摘要列表；提供 `npm run research:judge -- --prompt-file <path>` CLI 验收入口
+- Research Report Scoring：评分标准沉淀在 `lumen-app/doc/research-report-scoring-criteria.md`，每次评分如调整标准或发现新扣分模式，应更新该文档并追加记录
 
 ### 尚未完成
 
@@ -164,6 +168,7 @@ lumen/
 src/pages/          — LibraryPage, ReaderPage, ResearchPage, GraphPage, SettingsPage, CollectionPage
 src/components/ai/  — AiPanel（聊天面板，支持图片粘贴 + 停止生成）
 src/components/reader/ — PdfViewer, SelectionToolbar, TranslatePopover, TermCard
+src/agent/          — Research Harness：guides / tools / sensors / prompts / runtime / research-judgment
 src/services/       — ai.ts, ai-config.ts, papers.ts, files.ts, annotations.ts, collections.ts, research.ts
 src-tauri/src/commands/ — papers, pdf, fs, research
 src-tauri/src/db/   — migrations.rs (v1-v3)

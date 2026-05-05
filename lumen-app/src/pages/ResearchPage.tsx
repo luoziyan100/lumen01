@@ -12,6 +12,7 @@ import { PROVIDERS } from '../services/ai'
 import { runResearchAgent } from '../services/research-agent'
 import type { SearchResult } from '../services/search'
 import type { SearchPlan, SearchResultSet } from '../agent/types'
+import { buildResearchWritebackPlan } from '../agent/writeback'
 import { hasTauriInvoke } from '../services/tauri'
 import {
   createResearchProject,
@@ -91,11 +92,6 @@ function isSearchResultSet(value: unknown): value is SearchResultSet {
   )
 }
 
-function newResultSetId(): string {
-  const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  return `rs-${random}`
-}
-
 function restoredSearchResultSet(artifact: ResearchArtifact, index: number): SearchResultSet | null {
   const data = parseArtifactData<SearchResultsArtifactData | SearchResult[] | SearchResultSet>(artifact)
   if (isSearchResultSet(data)) {
@@ -148,27 +144,6 @@ function nextSearchResultSetLabel(sets: SearchResultSet[]): string {
     return parsed ? Math.max(max, Number(parsed)) : max
   }, 0)
   return `R${maxLabel + 1}`
-}
-
-function fallbackSearchResultSet(
-  query: string,
-  label: string,
-  plan: SearchPlan,
-  results: SearchResult[],
-): SearchResultSet {
-  return {
-    id: newResultSetId(),
-    label,
-    query,
-    plan,
-    mode: plan.searchMode,
-    fetched: results.length,
-    categories: plan.arxivCategories,
-    fromDate: plan.timeRange?.fromDate,
-    untilDate: plan.timeRange?.untilDate,
-    results,
-    createdAt: new Date().toISOString(),
-  }
 }
 
 function restoredCurrentPaper(artifact: ResearchArtifact | undefined): SearchResult | null {
@@ -446,62 +421,26 @@ ${paperList}${collectionsInfo}
       })
       const reply = agentResult.reply
       const assistantNote = await addResearchNote(projectId, 'assistant', reply)
+      const writeback = buildResearchWritebackPlan(agentResult, {
+        assistantNoteId: assistantNote.id,
+        query: text,
+        nextSearchResultSetLabel: nextResultSetLabel,
+      })
 
-      if (agentResult.searched && agentResult.searchResults?.length) {
-        const resultSet = {
-          ...(agentResult.searchResultSet ?? fallbackSearchResultSet(text, nextResultSetLabel, agentResult.plan, agentResult.searchResults)),
-          noteId: assistantNote.id,
-        }
+      if (writeback.state.searchResultSet) {
+        const resultSet = writeback.state.searchResultSet
         setSearchResultSets((prev) => [resultSet, ...prev.filter((set) => set.id !== resultSet.id)].slice(0, 10))
         setActiveSearchResultSetId(resultSet.id)
-        setLastSearchResults(resultSet.results)
-        await addResearchArtifact(projectId, 'search_results', {
-          resultSet,
-          results: resultSet.results,
-          plan: agentResult.plan,
-          traceId: agentResult.trace.id,
-          createdAt: resultSet.createdAt,
-        }, assistantNote.id)
+      }
+      if (writeback.state.lastSearchResults) {
+        setLastSearchResults(writeback.state.lastSearchResults)
+      }
+      if (writeback.state.currentPaper) {
+        setCurrentPaper(writeback.state.currentPaper)
       }
 
-      if (agentResult.currentPaper) {
-        setCurrentPaper(agentResult.currentPaper)
-        await addResearchArtifact(projectId, 'current_paper', {
-          paper: agentResult.currentPaper,
-          evidenceLevel: agentResult.currentPaperEvidenceLevel,
-          source: agentResult.plan.intent,
-          sourceResultSetId: agentResult.sourceResultSetId ?? agentResult.searchResultSet?.id,
-          createdAt: new Date().toISOString(),
-        }, assistantNote.id)
-      }
-
-      if (agentResult.paperEvidenceNotes?.length) {
-        await addResearchArtifact(projectId, 'paper_preview', {
-          papers: agentResult.paperEvidenceNotes.map((note) => ({
-            paper: note.paper,
-            title: note.paper.title,
-            doi: note.paper.doi,
-            source: note.paper.source,
-            sourceUrl: note.paper.source_url,
-            openAccessUrl: note.paper.open_access_pdf_url ?? note.paper.open_access_url,
-            sourceResultSetId: agentResult.sourceResultSetId ?? agentResult.searchResultSet?.id,
-            evidenceLevel: note.evidenceLevel,
-            cacheHit: note.cacheHit,
-            pdfCacheHit: note.pdfCacheHit,
-            warning: note.warning,
-          })),
-          plan: agentResult.plan,
-          traceId: agentResult.trace.id,
-          createdAt: new Date().toISOString(),
-        }, assistantNote.id)
-      }
-
-      if (agentResult.deepResearchReport) {
-        await addResearchArtifact(projectId, 'deep_research_report', {
-          ...agentResult.deepResearchReport,
-          plan: agentResult.plan,
-          traceId: agentResult.trace.id,
-        }, assistantNote.id)
+      for (const artifact of writeback.artifacts) {
+        await addResearchArtifact(projectId, artifact.type, artifact.data, artifact.noteId ?? assistantNote.id)
       }
 
       setMessages((prev) => [

@@ -42,8 +42,23 @@ export function GraphPage() {
   }, [])
 
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    let cancelled = false
+    Promise.all([listPapers(), listCitations()])
+      .then(([p, c]) => {
+        if (cancelled) return
+        setPapers(p)
+        setCitations(c)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current) return

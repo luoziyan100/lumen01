@@ -11,6 +11,7 @@ use tauri::{AppHandle, Manager};
 pub struct PdfFetchResponse {
     pub bytes: Vec<u8>,
     pub cache_hit: bool,
+    pub cache_path: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -151,6 +152,7 @@ pub async fn fetch_open_pdf(app: AppHandle, url: String) -> Result<PdfFetchRespo
             return Ok(PdfFetchResponse {
                 bytes,
                 cache_hit: true,
+                cache_path: cache_path.to_string_lossy().to_string(),
             });
         }
     }
@@ -195,6 +197,7 @@ pub async fn fetch_open_pdf(app: AppHandle, url: String) -> Result<PdfFetchRespo
     Ok(PdfFetchResponse {
         bytes: bytes.to_vec(),
         cache_hit: false,
+        cache_path: cache_path.to_string_lossy().to_string(),
     })
 }
 

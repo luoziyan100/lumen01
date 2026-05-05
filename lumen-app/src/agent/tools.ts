@@ -3,7 +3,7 @@
  * [OUTPUT]: 对外提供 Research Harness 的学术搜索工具封装与结果格式化
  * [POS]: agent 模块的工具层，统一包装外部学术搜索能力
  */
-import { formatSearchResults, searchPapers, type SearchOptions, type SearchResult } from '../services/search'
+import { formatSearchResults, searchPapers, type SearchOptions, type SearchResult } from '../services/search.ts'
 import type { PaperReference, SearchBatch, SearchPlan, SearchResultSet, ToolResult } from './types'
 
 function searchResultKey(result: SearchResult): string {
@@ -194,6 +194,10 @@ export function hasStrongResultSetAnchor(userText: string): boolean {
     || /(?:那|这)\s*[0-9一二两三四五六七八九十]+\s*篇\s*(?:论文|文献|paper|papers|结果)/i.test(userText)
 }
 
+export function hasExplicitCurrentPaperAnchor(userText: string): boolean {
+  return /(?:这篇|这个|该|当前)\s*(?:论文|paper|文献|文章)|刚才那篇\s*(?:论文|文献|paper|文章)|this\s+paper|the\s+paper/i.test(userText)
+}
+
 export function hasWeakPronounOnly(userText: string): boolean {
   return /这些|它们|他们|那几个|这几个|这些东西|那些/.test(userText) && !hasStrongResultSetAnchor(userText)
 }
@@ -377,12 +381,12 @@ export function resolvePaperReference(
     if (result) return { ok: true, data: result }
   }
 
-  if (/这篇|这个论文|这篇论文|那篇|它|该论文|刚才那篇/.test(userText)) {
+  if (hasExplicitCurrentPaperAnchor(userText)) {
     if (context.currentPaper) return { ok: true, data: context.currentPaper }
     if (lastSearchResults.length === 1) return { ok: true, data: lastSearchResults[0] }
   }
 
-  if (lastSearchResults.length === 1) {
+  if (lastSearchResults.length === 1 && (plan.paperReference || hasExplicitCurrentPaperAnchor(userText))) {
     return { ok: true, data: lastSearchResults[0] }
   }
 

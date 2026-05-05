@@ -37,11 +37,13 @@ export interface PdfResolutionResult {
   attempts: PdfResolutionAttempt[]
   bytes?: Uint8Array
   pdfCacheHit?: boolean
+  pdfCachePath?: string
 }
 
 interface PdfFetchResponse {
   bytes: number[]
   cache_hit: boolean
+  cache_path?: string
 }
 
 interface PublicHtmlResponse {
@@ -218,12 +220,13 @@ function setCachedText(key: string, paper: SearchResult, text: string): void {
   writeTextCache(records)
 }
 
-async function fetchPdfBytes(url: string, signal?: AbortSignal): Promise<{ bytes: Uint8Array; cacheHit: boolean }> {
+async function fetchPdfBytes(url: string, signal?: AbortSignal): Promise<{ bytes: Uint8Array; cacheHit: boolean; cachePath?: string }> {
   if (hasTauriInvoke()) {
     const response = await invokeTauri<PdfFetchResponse>('fetch_open_pdf', { url })
     return {
       bytes: new Uint8Array(response.bytes),
       cacheHit: response.cache_hit,
+      cachePath: response.cache_path,
     }
   }
 
@@ -272,7 +275,7 @@ async function verifyPdfCandidate(
 
   attempts.push({ source, status: 'candidate_found', url })
   try {
-    const { bytes, cacheHit } = await fetchPdfBytes(url, signal)
+    const { bytes, cacheHit, cachePath } = await fetchPdfBytes(url, signal)
     attempts.push({ source, status: 'verified_pdf', url })
     return {
       pdfUrl: url,
@@ -280,6 +283,7 @@ async function verifyPdfCandidate(
       attempts,
       bytes,
       pdfCacheHit: cacheHit,
+      pdfCachePath: cachePath,
     }
   } catch (error) {
     attempts.push({
@@ -669,6 +673,7 @@ ${detailText}
 PDF Resolver：
 来源：${resolution.source ?? 'unknown'}
 PDF URL：${pdfUrl}
+临时 PDF 缓存文件：${resolution.pdfCachePath ?? '浏览器开发模式未暴露本地缓存路径'}
 Landing URL：${resolution.landingUrl ?? '无'}
 License：${resolution.license ?? '未知'}
 尝试记录：${attemptSummary(resolution)}

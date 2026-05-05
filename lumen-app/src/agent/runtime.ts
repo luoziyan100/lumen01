@@ -5,11 +5,35 @@
  */
 import { chatWithAgentModel, type ChatMessage } from '../services/ai'
 import { formatPaperDetailContext, previewSearchResultPaper, type PaperPreviewData } from '../services/paper-preview'
+import type { SearchResult } from '../services/search'
 import { deterministicExternalSearchPlan, looksLikeExternalSearchRequest, planResearchAction } from './guides'
 import { buildEvidenceSynthesisUserPrompt, buildPaperDetailUserPrompt, buildPaperPreviewUserPrompt, buildSynthesisUserPrompt } from './prompts'
-import { buildContextPack, formatContextPackForModel } from './context-pack'
+import { buildPlannerContextPack, buildSynthesisContextPack, formatContextPackForModel } from './context-pack'
+import { loadResearchContext } from './context-loader'
+import { applyRetrievedResearchObjects, retrieveActiveResearchObjects } from './context-retrieval'
 import { maybeCompressChatHistory } from './compression'
 import { resolveUserQuestion } from './reference-resolver'
+import {
+  createAcademicSearchEvidenceBundle,
+  createDeepResearchEvidenceBundle,
+  createNoToolEvidenceBundle,
+  createReplyOverrideEvidenceBundle,
+  createResearchJudgmentEvidenceBundle,
+  createSearchResultSetFromBatches,
+  buildDeepResearchReportArtifact,
+  previewPapersAsEvidence,
+  previewResearchJudgmentPapers,
+  runAcademicSearchTool,
+  runLocalResearchTool,
+  runPaperDetailTool,
+  runPaperPreviewTool,
+  createResultSetLinksEvidenceBundle,
+} from './tool-runtime'
+import {
+  detectResearchJudgmentRequest,
+  extractResearchJudgmentInput,
+} from './research-judgment'
+import { synthesizeResearchJudgmentReport } from './synthesis'
 import { detectAnswerRisks, reflectOnSearchResults } from './sensors'
 import {
   mergeSearchBatches,
@@ -22,6 +46,7 @@ import {
   selectEvidencePapers,
   shouldForceNewSearch,
   isResultSetLinkRequest,
+  type PaperReferenceContext,
 } from './tools'
 import {
   createAgentRun,
@@ -32,7 +57,6 @@ import {
 import type {
   ResearchAgentResult,
   RunResearchHarnessInput,
-  DeepResearchReportArtifact,
   PaperEvidenceNote,
   SearchBatch,
   SearchPlan,
@@ -41,7 +65,10 @@ import type {
   ResolvedResultSetReferenceContext,
   ResolvedUserQuestion,
   ContextToolResult,
+  ToolEvidenceBundle,
+  ToolResult,
 } from './types'
+export { getResearchPipelineStageNames } from './pipeline-stages'
 
 function isMissingAiConfigError(error: unknown): boolean {
   return String(error).includes('请先在设置中配置 AI API Key')
@@ -65,7 +92,7 @@ function formatSynthesisContextPack(
     warnings?: string[]
   } = {},
 ): string {
-  return formatContextPackForModel(buildContextPack(
+  return formatContextPackForModel(buildSynthesisContextPack(
     input,
     input.context.resolvedQuestion ?? fallbackResolvedQuestion(input),
     plan,
@@ -73,17 +100,49 @@ function formatSynthesisContextPack(
   ))
 }
 
+function resolvePaperFromCurrentTurn(
+  plan: SearchPlan,
+  userText: string,
+  context: PaperReferenceContext,
+  resolvedQuestion?: ResolvedUserQuestion,
+): ToolResult<SearchResult> {
+  const referencedPapers = resolvedQuestion?.referencedPapers ?? []
+  if (referencedPapers.length === 1) return { ok: true, data: referencedPapers[0] }
+  if (referencedPapers.length > 1) {
+    return {
+      ok: false,
+      error: '本轮引用了多篇论文。请指定其中一篇，例如 R1-1，或改用多篇 deep_research。',
+    }
+  }
+  return resolvePaperReference(plan, userText, context)
+}
+
+function resolvePapersFromCurrentTurn(
+  plan: SearchPlan,
+  userText: string,
+  context: PaperReferenceContext,
+  resolvedQuestion: ResolvedUserQuestion | undefined,
+  limit: number,
+): ToolResult<SearchResult[]> {
+  const referencedPapers = resolvedQuestion?.referencedPapers ?? []
+  if (referencedPapers.length > 0) return { ok: true, data: referencedPapers.slice(0, limit) }
+  return resolvePaperReferences(plan, userText, context, limit)
+}
+
 async function synthesizeAnswer(
   input: RunResearchHarnessInput,
   plan: SearchPlan,
-  batches: SearchBatch[],
+  toolEvidence: ToolEvidenceBundle,
   reflection?: SearchReflection,
 ): Promise<string> {
   const synthesisMessages: ChatMessage[] = [
     ...input.history,
     {
       role: 'user',
-      content: `${formatSynthesisContextPack(input, plan, { toolResults: [{ type: 'search_batches', batches }] })}\n\n---\n\n${buildSynthesisUserPrompt(input.userText, plan, batches, reflection)}`,
+      content: `${formatSynthesisContextPack(input, plan, {
+        toolResults: toolEvidence.toolResults,
+        warnings: toolEvidence.warnings,
+      })}\n\n---\n\n${buildSynthesisUserPrompt(input.userText, plan, toolEvidence.searchBatches, reflection)}`,
     },
   ]
 
@@ -93,13 +152,17 @@ async function synthesizeAnswer(
 async function synthesizePaperDetail(
   input: RunResearchHarnessInput,
   plan: SearchPlan,
-  detailContext: string,
+  toolEvidence: ToolEvidenceBundle,
 ): Promise<string> {
+  const detailContext = toolEvidence.toolResults.find((result) => result.type === 'paper_detail')?.text ?? ''
   const messages: ChatMessage[] = [
     ...input.history,
     {
       role: 'user',
-      content: `${formatSynthesisContextPack(input, plan, { toolResults: [{ type: 'paper_detail', text: detailContext }] })}\n\n---\n\n${buildPaperDetailUserPrompt(input.userText, plan, detailContext)}`,
+      content: `${formatSynthesisContextPack(input, plan, {
+        toolResults: toolEvidence.toolResults,
+        warnings: toolEvidence.warnings,
+      })}\n\n---\n\n${buildPaperDetailUserPrompt(input.userText, plan, detailContext)}`,
     },
   ]
   return chatWithAgentModel(messages, 'synthesizer', input.signal)
@@ -109,18 +172,17 @@ async function synthesizePaperPreview(
   input: RunResearchHarnessInput,
   plan: SearchPlan,
   preview: PaperPreviewData,
+  toolEvidence: ToolEvidenceBundle,
 ): Promise<string> {
-  const previewContext = `证据来源：${preview.evidenceLevel}
-临时文本缓存命中：${preview.cacheHit ? '是' : '否'}
-临时 PDF 缓存命中：${preview.pdfCacheHit ? '是' : '否'}
-边界：paper_preview 只做临时读取，不会加入文献库。
-${preview.message ? `降级说明：${preview.message}\n` : ''}
-${preview.text}`
+  const previewContext = toolEvidence.toolResults.find((result) => result.type === 'paper_preview')?.text ?? preview.text
   const messages: ChatMessage[] = [
     ...input.history,
     {
       role: 'user',
-      content: `${formatSynthesisContextPack(input, plan, { toolResults: [{ type: 'paper_preview', text: previewContext, evidenceLevel: preview.evidenceLevel }] })}\n\n---\n\n${buildPaperPreviewUserPrompt(input.userText, plan, previewContext)}`,
+      content: `${formatSynthesisContextPack(input, plan, {
+        toolResults: toolEvidence.toolResults,
+        warnings: toolEvidence.warnings,
+      })}\n\n---\n\n${buildPaperPreviewUserPrompt(input.userText, plan, previewContext)}`,
     },
   ]
   return chatWithAgentModel(messages, 'local_paper_analysis', input.signal)
@@ -129,87 +191,23 @@ ${preview.text}`
 async function synthesizeEvidenceAnswer(
   input: RunResearchHarnessInput,
   plan: SearchPlan,
-  notes: PaperEvidenceNote[],
+  toolEvidence: ToolEvidenceBundle,
   mode: 'search_evidence' | 'deep_research',
   reflection?: SearchReflection,
 ): Promise<string> {
+  const notes = toolEvidence.evidence
   const messages: ChatMessage[] = [
     ...input.history,
     {
       role: 'user',
-      content: `${formatSynthesisContextPack(input, plan, { evidence: notes })}\n\n---\n\n${buildEvidenceSynthesisUserPrompt(input.userText, plan, notes, { mode, reflection })}`,
+      content: `${formatSynthesisContextPack(input, plan, {
+        toolResults: toolEvidence.toolResults,
+        evidence: notes,
+        warnings: toolEvidence.warnings,
+      })}\n\n---\n\n${buildEvidenceSynthesisUserPrompt(input.userText, plan, notes, { mode, reflection })}`,
     },
   ]
   return chatWithAgentModel(messages, 'local_paper_analysis', input.signal)
-}
-
-function previewToEvidenceNote(preview: PaperPreviewData): PaperEvidenceNote {
-  return {
-    paper: preview.paper,
-    evidenceLevel: preview.evidenceLevel,
-    text: preview.text,
-    cacheHit: preview.cacheHit,
-    pdfCacheHit: preview.pdfCacheHit,
-    warning: preview.message,
-  }
-}
-
-function buildDeepResearchReport(
-  input: RunResearchHarnessInput,
-  notes: PaperEvidenceNote[],
-  source?: { resultSetId?: string; indices?: number[] },
-): DeepResearchReportArtifact {
-  return {
-    query: input.userText,
-    papers: notes.map((note, index) => ({
-      paper: note.paper,
-      title: note.paper.title,
-      doi: note.paper.doi,
-      source: note.paper.source,
-      sourceResultSetId: source?.resultSetId,
-      sourceResultIndex: source?.indices?.[index],
-      evidenceLevel: note.evidenceLevel,
-      cacheHit: note.cacheHit,
-      pdfCacheHit: note.pdfCacheHit,
-      warning: note.warning,
-    })),
-    createdAt: new Date().toISOString(),
-  }
-}
-
-function newResultSetId(): string {
-  const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  return `rs-${random}`
-}
-
-function createSearchResultSet(
-  input: RunResearchHarnessInput,
-  plan: SearchPlan,
-  batches: SearchBatch[],
-  results: PaperEvidenceNote['paper'][],
-): SearchResultSet {
-  const primaryBatch = batches.find((batch) => batch.mode === 'recent_ai_feed' || batch.mode === 'arxiv_category_feed') ?? batches[0]
-  const categories = Array.from(new Set(batches.flatMap((batch) => batch.categories ?? [])))
-  const totalAvailable = primaryBatch?.totalAvailable
-    ?? (batches.length > 0 ? batches.reduce((sum, batch) => sum + batch.total, 0) : undefined)
-  const fetched = batches.length > 0
-    ? batches.reduce((sum, batch) => sum + (batch.fetched ?? batch.results.length), 0)
-    : results.length
-
-  return {
-    id: newResultSetId(),
-    label: input.context.nextSearchResultSetLabel ?? 'R1',
-    query: input.userText,
-    plan,
-    mode: primaryBatch?.mode ?? plan.searchMode,
-    totalAvailable,
-    fetched,
-    categories: categories.length > 0 ? categories : undefined,
-    fromDate: primaryBatch?.fromDate ?? plan.timeRange?.fromDate,
-    untilDate: primaryBatch?.untilDate ?? plan.timeRange?.untilDate,
-    results,
-    createdAt: new Date().toISOString(),
-  }
 }
 
 function formatSearchResultSetSummary(resultSet: SearchResultSet): string {
@@ -233,21 +231,6 @@ function withResultSetSummary(reply: string, resultSet?: SearchResultSet): strin
   if (!resultSet) return reply
   const stableNumbers = formatStableResultNumbers(resultSet)
   return `${formatSearchResultSetSummary(resultSet)}${stableNumbers ? `\n\n${stableNumbers}` : ''}\n\n${reply}`
-}
-
-function formatResultSetLinks(
-  label: string,
-  papers: PaperEvidenceNote['paper'][],
-  indices: number[],
-): string {
-  const lines = papers.map((paper, idx) => {
-    const number = indices[idx] ?? idx + 1
-    const pdfUrl = paper.open_access_pdf_url ?? paper.open_access_url
-    const doi = paper.doi ? `\n   DOI: ${paper.doi}` : ''
-    const pdf = pdfUrl ? `\n   PDF: ${pdfUrl}` : ''
-    return `**${label}-${number}. ${paper.title}**\n   来源: ${paper.source_url || '无'}${pdf}${doi}`
-  })
-  return `这是 ${label} 中你引用的论文链接：\n\n${lines.join('\n\n')}`
 }
 
 function toResolvedResultSetReferenceContext(
@@ -284,21 +267,13 @@ async function previewEvidencePapers(
   papers: PaperPreviewData['paper'][],
   stepName: string,
 ): Promise<PaperEvidenceNote[]> {
-  const previews = await recordAgentStep(
+  return recordAgentStep(
     trace,
     'tool',
     stepName,
     { papers: papers.map((paper) => ({ title: paper.title, doi: paper.doi, openAccessPdfUrl: paper.open_access_pdf_url ?? paper.open_access_url })) },
-    async () => {
-      const data: PaperPreviewData[] = []
-      for (const paper of papers) {
-        if (input.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-        data.push(await previewSearchResultPaper(paper, input.signal))
-      }
-      return data
-    },
+    async () => previewPapersAsEvidence(papers, previewSearchResultPaper, input.signal),
   )
-  return previews.map(previewToEvidenceNote)
 }
 
 async function runSearchPipeline(
@@ -310,52 +285,33 @@ async function runSearchPipeline(
   reflection: SearchReflection
   searchResults: PaperPreviewData['paper'][]
 }> {
-  const searchResult = await recordAgentStep(
-    trace,
-    'tool',
-    'academic_search',
-    { queries: plan.queries, timeRange: plan.timeRange, sortMode: plan.sortMode },
-    () => runAcademicSearches(plan, input.signal),
-  )
-  if (!searchResult.ok || !searchResult.data) {
-    throw new Error(searchResult.error ?? '学术搜索失败')
-  }
-
-  let batches = searchResult.data
-  let reflection = await recordAgentStep(
-    trace,
-    'sensor',
-    'reflect_on_search_results',
-    { userText: input.userText, plan, resultCount: batches.reduce((sum, batch) => sum + batch.results.length, 0) },
-    () => reflectOnSearchResults(input.userText, plan, batches, input.signal),
-  )
-
-  if (reflection.status === 'retry' && reflection.revisedQueries.length > 0) {
-    const retryResult = await recordAgentStep(
+  return runAcademicSearchTool({
+    userText: input.userText,
+    plan,
+    search: (searchPlan, phase) => recordAgentStep(
       trace,
       'tool',
-      'academic_search_retry',
-      { queries: reflection.revisedQueries },
-      () => runAcademicSearches({ ...plan, queries: reflection.revisedQueries, sortMode: 'newest' }, input.signal),
-    )
-    if (!retryResult.ok || !retryResult.data) {
-      throw new Error(retryResult.error ?? '重试搜索失败')
-    }
-    batches = [...batches, ...retryResult.data]
-    reflection = {
-      ...reflection,
-      status: retryResult.data.some((batch) => batch.results.length > 0) ? 'sufficient' : 'not_found',
-    }
-  }
-
-  return {
-    batches,
-    reflection,
-    searchResults: mergeSearchBatches(batches, 12),
-  }
+      phase === 'retry' ? 'academic_search_retry' : 'academic_search',
+      phase === 'retry'
+        ? { queries: searchPlan.queries }
+        : { queries: searchPlan.queries, timeRange: searchPlan.timeRange, sortMode: searchPlan.sortMode },
+      () => runAcademicSearches(searchPlan, input.signal),
+    ),
+    reflect: (userText, searchPlan, batches) => recordAgentStep(
+      trace,
+      'sensor',
+      'reflect_on_search_results',
+      { userText, plan: searchPlan, resultCount: batches.reduce((sum, batch) => sum + batch.results.length, 0) },
+      () => reflectOnSearchResults(userText, searchPlan, batches, input.signal),
+    ),
+    merge: mergeSearchBatches,
+  })
 }
 
 export async function runResearchHarness(input: RunResearchHarnessInput): Promise<ResearchAgentResult> {
+  const loadedContext = loadResearchContext(input)
+  const retrievedObjects = retrieveActiveResearchObjects(loadedContext)
+  input = applyRetrievedResearchObjects(input, retrievedObjects)
   const trace = createAgentRun(input.userText)
   let plan: SearchPlan
   const paperReferenceContext = {
@@ -410,18 +366,58 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
     await recordAgentStep(
       trace,
       'tool',
-      'build_context_pack',
+      'planner_context_pack',
       {
         resolvedQuestion: input.context.resolvedQuestion,
         compressionApplied: compression.compressionApplied,
       },
-      async () => buildContextPack(input, resolvedQuestion, {
+      async () => buildPlannerContextPack(input, resolvedQuestion, {
         intent: 'answer',
         shouldSearch: false,
         queries: [],
         target: resolvedQuestion.referencedPapers?.length ? 'resolved_result_set_items' : 'none',
       }),
     )
+
+    if (detectResearchJudgmentRequest(input.userText)) {
+      const reportInput = extractResearchJudgmentInput(input.userText)
+      if (reportInput) {
+        plan = {
+          intent: 'deep_research',
+          shouldSearch: false,
+          queries: [],
+          evidenceRequirement: 'multi_pdf_required',
+          reason: 'research_judgment_analysis_mode',
+        }
+        const previews = await recordAgentStep(
+          trace,
+          'tool',
+          'research_judgment_pdf_preview',
+          { papers: reportInput.papers.map((paper) => ({ title: paper.title, url: paper.url })) },
+          async () => previewResearchJudgmentPapers(reportInput, previewSearchResultPaper, input.signal),
+        )
+        const toolEvidence = createResearchJudgmentEvidenceBundle(plan, reportInput, previews)
+        const report = await recordAgentStep(
+          trace,
+          'model',
+          'synthesize_research_judgment_report',
+          { topic: reportInput.topic, paperCount: toolEvidence.evidence.length },
+          async () => synthesizeResearchJudgmentReport(reportInput, toolEvidence),
+        )
+        finishAgentRun(trace)
+        return {
+          reply: report,
+          searched: false,
+          plan,
+          searchResults: toolEvidence.searchResults,
+          currentPaper: toolEvidence.currentPaper,
+          currentPaperEvidenceLevel: toolEvidence.currentPaperEvidenceLevel,
+          paperEvidenceNotes: toolEvidence.evidence,
+          deepResearchReport: toolEvidence.deepResearchReport,
+          trace,
+        }
+      }
+    }
 
     if (resolvedQuestion.ambiguity) {
       plan = {
@@ -431,8 +427,9 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
         response: resolvedQuestion.ambiguity,
         reason: 'ambiguous_reference',
       }
+      const toolEvidence = createReplyOverrideEvidenceBundle('clarify', plan, resolvedQuestion.ambiguity)
       finishAgentRun(trace)
-      return { reply: resolvedQuestion.ambiguity, searched: false, plan, trace }
+      return { reply: toolEvidence.replyOverride ?? resolvedQuestion.ambiguity, searched: false, plan, trace }
     }
 
     if (
@@ -451,19 +448,22 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
         evidenceRequirement: 'metadata_ok',
         reason: 'resolved_question_result_set_link_request',
       }
-      const reply = formatResultSetLinks(
+      const toolEvidence = createResultSetLinksEvidenceBundle(
+        plan,
         resolvedQuestion.referencedResultSetLabel,
         resolvedQuestion.referencedPapers,
         resolvedQuestion.referencedPaperIndices,
+        resultSet?.results ?? resolvedQuestion.referencedPapers,
       )
       finishAgentRun(trace)
       return {
-        reply,
+        reply: toolEvidence.replyOverride ?? '',
         searched: false,
         plan,
-        searchResults: resultSet?.results,
+        searchResults: toolEvidence.searchResults,
         sourceResultSetId: resolvedQuestion.referencedResultSetId,
-        currentPaper: resolvedQuestion.referencedPapers[0],
+        currentPaper: toolEvidence.currentPaper,
+        currentPaperEvidenceLevel: toolEvidence.currentPaperEvidenceLevel,
         trace,
       }
     }
@@ -483,15 +483,16 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
         evidenceRequirement: 'metadata_ok',
         reason: 'deterministic_result_set_link_request',
       }
-      const reply = formatResultSetLinks(resultSet.label, papers, indices)
+      const toolEvidence = createResultSetLinksEvidenceBundle(plan, resultSet.label, papers, indices, resultSet.results)
       finishAgentRun(trace)
       return {
-        reply,
+        reply: toolEvidence.replyOverride ?? '',
         searched: false,
         plan,
-        searchResults: resultSet.results,
+        searchResults: toolEvidence.searchResults,
         sourceResultSetId: resultSet.id,
-        currentPaper: papers[0],
+        currentPaper: toolEvidence.currentPaper,
+        currentPaperEvidenceLevel: toolEvidence.currentPaperEvidenceLevel,
         trace,
       }
     }
@@ -518,8 +519,9 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
         reason: 'missing_ai_config',
       }
       const reply = '搜索 Agent 需要先连接一个 AI 模型，才能理解你的意图、改写检索 query、判断结果是否相关。请先在设置里配置 API Key；配置后它不会再把“搜索结果不准确”这类反馈当作关键词去搜。'
+      const toolEvidence = createReplyOverrideEvidenceBundle('clarify', plan, reply)
       finishAgentRun(trace)
-      return { reply, searched: false, plan, trace }
+      return { reply: toolEvidence.replyOverride ?? reply, searched: false, plan, trace }
     }
 
     if (preResolvedResultSetRef.ok && preResolvedResultSetRef.data && !shouldForceNewSearch(input.userText)) {
@@ -539,14 +541,16 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
 
     if (plan.intent === 'feedback') {
       const reply = plan.response || '收到，这属于对上一轮搜索质量的反馈。我会调整查询规划和结果评估，不会把这句话本身当成检索关键词。'
+      const toolEvidence = createReplyOverrideEvidenceBundle('feedback', plan, reply)
       finishAgentRun(trace)
-      return { reply, searched: false, plan, trace }
+      return { reply: toolEvidence.replyOverride ?? reply, searched: false, plan, trace }
     }
 
     if (plan.intent === 'clarify') {
       const reply = plan.response || '你想让我优先搜索哪一类论文或哪个具体主题？'
+      const toolEvidence = createReplyOverrideEvidenceBundle('clarify', plan, reply)
       finishAgentRun(trace)
-      return { reply, searched: false, plan, trace }
+      return { reply: toolEvidence.replyOverride ?? reply, searched: false, plan, trace }
     }
 
     const existingResultSetRef = preResolvedResultSetRef.ok ? preResolvedResultSetRef : resolveResultSetReference(input.userText, paperReferenceContext, 5)
@@ -557,22 +561,24 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
       && !shouldForceNewSearch(input.userText)
     ) {
       const { resultSet, papers, indices } = existingResultSetRef.data
-      const reply = formatResultSetLinks(resultSet.label, papers, indices)
+      const toolEvidence = createResultSetLinksEvidenceBundle({ ...plan, shouldSearch: false }, resultSet.label, papers, indices, resultSet.results)
       finishAgentRun(trace)
       return {
-        reply,
+        reply: toolEvidence.replyOverride ?? '',
         searched: false,
         plan: { ...plan, shouldSearch: false },
-        searchResults: resultSet.results,
+        searchResults: toolEvidence.searchResults,
         sourceResultSetId: resultSet.id,
-        currentPaper: papers[0],
+        currentPaper: toolEvidence.currentPaper,
+        currentPaperEvidenceLevel: toolEvidence.currentPaperEvidenceLevel,
         trace,
       }
     }
 
     if (plan.response && plan.intent === 'answer') {
+      const toolEvidence = createNoToolEvidenceBundle(plan)
       finishAgentRun(trace)
-      return { reply: plan.response, searched: false, plan, trace }
+      return { reply: toolEvidence.replyOverride ?? plan.response, searched: false, plan, trace }
     }
 
     if (plan.intent === 'import_to_library') {
@@ -585,13 +591,14 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
           currentPaperTitle: input.context.currentPaper?.title,
           lastSearchResultCount: input.context.lastSearchResults?.length ?? 0,
         },
-        async () => resolvePaperReference(plan, input.userText, paperReferenceContext),
+        async () => resolvePaperFromCurrentTurn(plan, input.userText, paperReferenceContext, input.context.resolvedQuestion),
       )
       const result = await resolved
       const paperLine = result.ok && result.data ? `\n\n识别到目标论文：《${result.data.title}》。` : ''
       const reply = `我识别到这是“导入/保存到文献库”的显式请求，但本阶段还没有把外部搜索结果一键写入永久文献库的安全流程接好，所以我不会自动保存或下载到本地文献库。${paperLine}\n\n目前可以先用 paper preview 做临时阅读；要永久保存，请在文献库里手动导入你已确认的 PDF。`
+      const toolEvidence = createReplyOverrideEvidenceBundle('import_to_library', plan, reply)
       finishAgentRun(trace)
-      return { reply, searched: false, plan, searchResults: input.context.lastSearchResults, trace }
+      return { reply: toolEvidence.replyOverride ?? reply, searched: false, plan, searchResults: input.context.lastSearchResults, trace }
     }
 
     if (plan.intent === 'deep_research') {
@@ -606,27 +613,36 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
         : input.context.lastSearchResults ?? []
       let reflection: SearchReflection | undefined
       let searchResultSet: SearchResultSet | undefined
+      let searchBatches: SearchBatch[] = []
       let searched = false
 
       if (!existingRef.ok && ((plan.shouldSearch && plan.queries.length > 0) || (searchResults.length === 0 && plan.queries.length > 0))) {
         const search = await runSearchPipeline(input, trace, plan)
         searchResults = search.searchResults
         reflection = search.reflection
-        searchResultSet = createSearchResultSet(input, plan, search.batches, searchResults)
+        searchBatches = search.batches
+        searchResultSet = createSearchResultSetFromBatches({
+          userText: input.userText,
+          nextSearchResultSetLabel: input.context.nextSearchResultSetLabel,
+          plan,
+          batches: search.batches,
+          results: searchResults,
+        })
         searched = true
       }
 
       const resolved = existingRef.ok && existingRef.data
         ? { ok: true as const, data: existingRef.data.papers }
-        : resolvePaperReferences(
+        : resolvePapersFromCurrentTurn(
           plan,
           input.userText,
           {
-            currentPaper: input.context.currentPaper,
+            currentPaper: paperReferenceContext.currentPaper,
             lastSearchResults: searchResults,
-            activeSearchResultSetId: input.context.activeSearchResultSetId,
-            recentSearchResultSets: input.context.recentSearchResultSets,
+            activeSearchResultSetId: paperReferenceContext.activeSearchResultSetId,
+            recentSearchResultSets: paperReferenceContext.recentSearchResultSets,
           },
+          input.context.resolvedQuestion,
           limit,
         )
       if (!resolved.ok || !resolved.data || resolved.data.length === 0) {
@@ -642,28 +658,39 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
 
       const selectedPapers = resolved.data.slice(0, limit)
       const notes = await previewEvidencePapers(input, trace, selectedPapers, 'deep_research_preview_papers')
+      const deepResearchReport = buildDeepResearchReportArtifact(
+        input.userText,
+        notes,
+        existingRef.ok && existingRef.data
+          ? { resultSetId: existingRef.data.resultSet.id, indices: existingRef.data.indices }
+          : undefined,
+      )
+      const toolEvidence = createDeepResearchEvidenceBundle(plan, {
+        batches: searchBatches,
+        searchResults,
+        searchResultSet,
+        evidence: notes,
+        deepResearchReport,
+      })
       const reply = await recordAgentStep(
         trace,
         'model',
         'synthesize_deep_research',
         { paperCount: notes.length, evidenceLevels: notes.map((note) => note.evidenceLevel), reflection },
-        () => synthesizeEvidenceAnswer(input, plan, notes, 'deep_research', reflection),
+        () => synthesizeEvidenceAnswer(input, plan, toolEvidence, 'deep_research', reflection),
       )
-      const deepResearchReport = buildDeepResearchReport(input, notes, existingRef.ok && existingRef.data
-        ? { resultSetId: existingRef.data.resultSet.id, indices: existingRef.data.indices }
-        : undefined)
       finishAgentRun(trace)
       return {
-        reply: withResultSetSummary(reply, searchResultSet),
+        reply: withResultSetSummary(reply, toolEvidence.searchResultSet),
         searched,
         plan,
-        searchResults,
-        searchResultSet,
-        searchResultSetLabel: searchResultSet?.label,
-        currentPaper: notes[0]?.paper,
-        currentPaperEvidenceLevel: notes[0]?.evidenceLevel,
-        paperEvidenceNotes: notes,
-        deepResearchReport,
+        searchResults: toolEvidence.searchResults,
+        searchResultSet: toolEvidence.searchResultSet,
+        searchResultSetLabel: toolEvidence.searchResultSet?.label,
+        currentPaper: toolEvidence.currentPaper,
+        currentPaperEvidenceLevel: toolEvidence.currentPaperEvidenceLevel,
+        paperEvidenceNotes: toolEvidence.evidence,
+        deepResearchReport: toolEvidence.deepResearchReport,
         sourceResultSetId: existingRef.ok && existingRef.data ? existingRef.data.resultSet.id : undefined,
         trace,
       }
@@ -679,7 +706,7 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
           currentPaperTitle: input.context.currentPaper?.title,
           lastSearchResultCount: input.context.lastSearchResults?.length ?? 0,
         },
-        async () => resolvePaperReference(plan, input.userText, paperReferenceContext),
+        async () => resolvePaperFromCurrentTurn(plan, input.userText, paperReferenceContext, input.context.resolvedQuestion),
       )
       if (!resolved.ok || !resolved.data) {
         finishAgentRun(trace)
@@ -692,19 +719,19 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
         }
       }
 
-      const detailContext = await recordAgentStep(
+      const toolEvidence = await recordAgentStep(
         trace,
         'tool',
         'paper_detail',
         { title: resolved.data.title, doi: resolved.data.doi, evidenceLevel: resolved.data.abstract_text ? 'abstract' : 'metadata' },
-        async () => formatPaperDetailContext(resolved.data!),
+        async () => runPaperDetailTool(plan, resolved.data!, formatPaperDetailContext),
       )
       const reply = await recordAgentStep(
         trace,
         'model',
         'synthesize_paper_detail',
         { title: resolved.data.title },
-        () => synthesizePaperDetail(input, plan, detailContext),
+        () => synthesizePaperDetail(input, plan, toolEvidence),
       )
       finishAgentRun(trace)
       return {
@@ -712,8 +739,8 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
         searched: false,
         plan,
         searchResults: input.context.lastSearchResults,
-        currentPaper: resolved.data,
-        currentPaperEvidenceLevel: resolved.data.abstract_text ? 'abstract_only' : 'metadata_only',
+        currentPaper: toolEvidence.currentPaper,
+        currentPaperEvidenceLevel: toolEvidence.currentPaperEvidenceLevel,
         trace,
       }
     }
@@ -728,7 +755,7 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
           currentPaperTitle: input.context.currentPaper?.title,
           lastSearchResultCount: input.context.lastSearchResults?.length ?? 0,
         },
-        async () => resolvePaperReference(plan, input.userText, paperReferenceContext),
+        async () => resolvePaperFromCurrentTurn(plan, input.userText, paperReferenceContext, input.context.resolvedQuestion),
       )
       if (!resolved.ok || !resolved.data) {
         finishAgentRun(trace)
@@ -741,7 +768,7 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
         }
       }
 
-      const preview = await recordAgentStep(
+      const toolEvidence = await recordAgentStep(
         trace,
         'tool',
         'paper_preview',
@@ -751,14 +778,25 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
           openAccessUrl: resolved.data.open_access_pdf_url ?? resolved.data.open_access_url,
           libraryImport: false,
         },
-        () => previewSearchResultPaper(resolved.data!, input.signal),
+        () => runPaperPreviewTool(plan, resolved.data!, previewSearchResultPaper, input.signal),
       )
       const reply = await recordAgentStep(
         trace,
         'model',
         'synthesize_paper_preview',
-        { title: resolved.data.title, evidenceLevel: preview.evidenceLevel, cacheHit: preview.cacheHit },
-        () => synthesizePaperPreview(input, plan, preview),
+        {
+          title: resolved.data.title,
+          evidenceLevel: toolEvidence.currentPaperEvidenceLevel,
+          cacheHit: toolEvidence.evidence[0]?.cacheHit,
+        },
+        () => synthesizePaperPreview(input, plan, {
+          paper: toolEvidence.currentPaper ?? resolved.data!,
+          evidenceLevel: toolEvidence.currentPaperEvidenceLevel ?? 'metadata_only',
+          text: toolEvidence.evidence[0]?.text ?? '',
+          cacheHit: toolEvidence.evidence[0]?.cacheHit ?? false,
+          pdfCacheHit: toolEvidence.evidence[0]?.pdfCacheHit ?? false,
+          message: toolEvidence.evidence[0]?.warning,
+        }, toolEvidence),
       )
       finishAgentRun(trace)
       return {
@@ -766,26 +804,31 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
         searched: false,
         plan,
         searchResults: input.context.lastSearchResults,
-        currentPaper: resolved.data,
-        currentPaperEvidenceLevel: preview.evidenceLevel,
+        currentPaper: toolEvidence.currentPaper,
+        currentPaperEvidenceLevel: toolEvidence.currentPaperEvidenceLevel,
+        paperEvidenceNotes: toolEvidence.evidence,
         trace,
       }
     }
 
     if (plan.intent === 'local_research') {
       const paperQuery = plan.localPaperRequest?.query || input.userText
-      const paperContext = await recordAgentStep(
+      const toolEvidence = await recordAgentStep(
         trace,
         'tool',
         'read_local_papers',
         { userText: input.userText, localPaperRequest: plan.localPaperRequest },
-        async () => input.loadLocalPaperContext ? input.loadLocalPaperContext(paperQuery) : '',
+        async () => runLocalResearchTool(plan, paperQuery, input.loadLocalPaperContext),
       )
+      const paperContext = toolEvidence.toolResults.find((result) => result.type === 'local_papers')?.text ?? ''
       const localHistory: ChatMessage[] = [
         ...input.history.slice(0, -1),
         {
           role: 'user',
-          content: `${formatSynthesisContextPack(input, plan, { toolResults: [{ type: 'local_papers', text: paperContext || '没有读取到本地论文内容。' }] })}\n\n---\n\n${paperContext ? input.userText + paperContext : input.userText}`,
+          content: `${formatSynthesisContextPack(input, plan, {
+            toolResults: toolEvidence.toolResults,
+            warnings: toolEvidence.warnings,
+          })}\n\n---\n\n${paperContext ? input.userText + paperContext : input.userText}`,
           images: input.history[input.history.length - 1]?.images,
         },
       ]
@@ -821,18 +864,30 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
     }
 
     const { batches, reflection, searchResults } = await runSearchPipeline(input, trace, plan)
-    const searchResultSet = createSearchResultSet(input, plan, batches, searchResults)
+    const searchResultSet = createSearchResultSetFromBatches({
+      userText: input.userText,
+      nextSearchResultSetLabel: input.context.nextSearchResultSetLabel,
+      plan,
+      batches,
+      results: searchResults,
+    })
 
     if (requiresPrimarySource(input.userText, plan) && searchResults.length > 0) {
       const limit = requestedEvidencePaperCount(input.userText, plan)
       const selectedPapers = selectEvidencePapers(searchResults, limit)
       const notes = await previewEvidencePapers(input, trace, selectedPapers, 'academic_search_evidence_preview')
+      const toolEvidence = createAcademicSearchEvidenceBundle(plan, {
+        batches,
+        searchResults,
+        searchResultSet,
+        evidence: notes,
+      })
       const reply = await recordAgentStep(
         trace,
         'model',
         'synthesize_evidence_answer',
         { plan, reflection, paperCount: notes.length, evidenceLevels: notes.map((note) => note.evidenceLevel) },
-        () => synthesizeEvidenceAnswer(input, plan, notes, 'search_evidence', reflection),
+        () => synthesizeEvidenceAnswer(input, plan, toolEvidence, 'search_evidence', reflection),
       )
       const risks = await recordAgentStep(
         trace,
@@ -844,27 +899,32 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
 
       finishAgentRun(trace)
       return {
-        reply: withResultSetSummary(reply, searchResultSet),
+        reply: withResultSetSummary(reply, toolEvidence.searchResultSet),
         searched: true,
         plan,
-        searchResults,
-        searchResultSet,
-        searchResultSetLabel: searchResultSet.label,
-        currentPaper: notes[0]?.paper,
-        currentPaperEvidenceLevel: notes[0]?.evidenceLevel,
-        paperEvidenceNotes: notes,
+        searchResults: toolEvidence.searchResults,
+        searchResultSet: toolEvidence.searchResultSet,
+        searchResultSetLabel: toolEvidence.searchResultSet?.label,
+        currentPaper: toolEvidence.currentPaper,
+        currentPaperEvidenceLevel: toolEvidence.currentPaperEvidenceLevel,
+        paperEvidenceNotes: toolEvidence.evidence,
         reflection,
         risks,
         trace,
       }
     }
 
+    const toolEvidence = createAcademicSearchEvidenceBundle(plan, {
+      batches,
+      searchResults,
+      searchResultSet,
+    })
     const reply = await recordAgentStep(
       trace,
       'model',
       'synthesize_answer',
       { plan, reflection, searchBatchCount: batches.length },
-      () => synthesizeAnswer(input, plan, batches, reflection),
+      () => synthesizeAnswer(input, plan, toolEvidence, reflection),
     )
     const risks = await recordAgentStep(
       trace,
@@ -876,12 +936,12 @@ export async function runResearchHarness(input: RunResearchHarnessInput): Promis
 
     finishAgentRun(trace)
     return {
-      reply: withResultSetSummary(reply, searchResultSet),
+      reply: withResultSetSummary(reply, toolEvidence.searchResultSet),
       searched: true,
       plan,
-      searchResults,
-      searchResultSet,
-      searchResultSetLabel: searchResultSet.label,
+      searchResults: toolEvidence.searchResults,
+      searchResultSet: toolEvidence.searchResultSet,
+      searchResultSetLabel: toolEvidence.searchResultSet?.label,
       reflection,
       risks,
       trace,

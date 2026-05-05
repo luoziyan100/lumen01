@@ -3,10 +3,10 @@
  * [OUTPUT]: 对外提供 Research Harness 的 planner/reflector/synthesizer prompt 构造函数
  * [POS]: agent 模块的提示词集中存放点，方便后续 feedback loop 写回规则
  */
-import type { AgentInputContext, PaperEvidenceNote, SearchBatch, SearchPlan, SearchReflection } from './types'
-import { formatSearchBatches, mergeSearchBatches } from './tools'
-import { formatSearchResults } from '../services/search'
-import { toolManifestForPlanner } from './tool-manifest'
+import type { AgentInputContext, PaperEvidenceNote, ResolvedUserQuestion, SearchBatch, SearchPlan, SearchReflection } from './types'
+import { formatSearchBatches, hasExplicitCurrentPaperAnchor, hasStrongResultSetAnchor, mergeSearchBatches } from './tools.ts'
+import { formatSearchResults, type SearchResult } from '../services/search.ts'
+import { toolManifestForPlanner } from './tool-manifest.ts'
 
 export const PLANNER_SYSTEM_PROMPT = `你是 Lumen 的研究 Agent 调度器。你只负责判断用户当前输入需要哪个动作，不直接回答长篇内容。
 
@@ -56,7 +56,7 @@ export const PLANNER_SYSTEM_PROMPT = `你是 Lumen 的研究 Agent 调度器。�
 - 如果上下文里已有 resolvedResultSetReference，系统已经确定了用户指向哪些论文；你只判断用户想做什么，并设置 target=resolved_result_set_items、shouldSearch=false，不要再从聊天文本里猜论文身份。
 - 用户说“找/搜索论文并解释、总结、分析、对比、方法、实验、结论、贡献、局限、定义、理论”时，不是纯推荐列表；intent 仍可为 academic_search，但 evidenceRequirement 必须是 single_pdf_required 或 multi_pdf_required。
 - 多篇论文对比、综述、深读、综合方法/结论时设置 evidenceRequirement=multi_pdf_required，并按用户需求填写 targetPaperCount，最多 5；未明确数量时默认 3。
-- 如果上下文里有 currentPaper，用户说“这篇 / 它 / 这个论文 / 刚才那篇”时优先指向 currentPaper，不要重新搜索。
+- 只有当 resolvedQuestion.referencedPapers、resolvedResultSetReference，或用户明确说“这篇论文/这个论文/当前论文/刚才那篇论文/R1-1/第 N 篇”时，才允许绑定已有论文对象。裸“它/这个/那个”不能自动指向旧 currentPaper。
 - 如果用户要求“深入对比这几篇 / 深读这些论文”，intent=deep_research，evidenceRequirement=multi_pdf_required。只允许临时读取开放 PDF，不导入文献库。
 - 只有用户明确说“保存、加入文献库、导入文献库、下载到本地、本地保存 PDF”，才设置 intent=import_to_library；普通“总结/讲什么/方法是什么”不是导入意图。
 - 如果用户是在评价上一轮搜索质量、纠错、追问为什么不准确、或要求调整策略，这是 feedback，不要搜索。
@@ -84,24 +84,67 @@ export const REFLECTION_SYSTEM_PROMPT = `你是学术搜索结果评估器。判
 如果结果明显跑题，给出 1-2 条更精准的英文 revisedQueries。只允许重试一次，因此 revisedQueries 要尽量高质量。
 如果搜索计划包含 timeRange，必须检查结果是否满足时间范围；主题相关但时间不满足，也应该 retry 或在 reason 中说明 time_range_mismatch。`
 
+function plannerPaperSummary(paper: SearchResult) {
+  return {
+    title: paper.title,
+    authors: paper.authors.map((author) => author.name).slice(0, 4),
+    date: paper.published_date ?? paper.year,
+    doi: paper.doi,
+    source: paper.source,
+    sourceUrl: paper.source_url,
+    openAccessUrl: paper.open_access_pdf_url ?? paper.open_access_url,
+    openAccessLandingUrl: paper.open_access_landing_url,
+    hasOpenAccessPdf: Boolean(paper.open_access_pdf_url ?? paper.open_access_url),
+    abstractSnippet: paper.abstract_text?.slice(0, 280),
+  }
+}
+
+function paperIdentity(paper: SearchResult): string {
+  if (paper.doi) return `doi:${paper.doi.toLowerCase()}`
+  return `title:${paper.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`
+}
+
+function plannerCurrentPaperSource(
+  context: AgentInputContext,
+  referencedPapers: SearchResult[],
+  userText: string,
+): SearchResult | null {
+  if (referencedPapers.length === 1) return referencedPapers[0]
+  if (!context.currentPaper) return null
+  if (!hasExplicitCurrentPaperAnchor(userText)) return null
+  const currentIdentity = paperIdentity(context.currentPaper)
+  if (referencedPapers.length === 0 || referencedPapers.some((paper) => paperIdentity(paper) === currentIdentity)) {
+    return context.currentPaper
+  }
+  return null
+}
+
+function plannerResolvedQuestion(
+  resolvedQuestion: ResolvedUserQuestion | undefined,
+  referencedPapers: SearchResult[],
+  userText: string,
+): ResolvedUserQuestion | undefined {
+  if (!resolvedQuestion) return undefined
+  if (referencedPapers.length > 0 || resolvedQuestion.referencedResultSetId || hasExplicitCurrentPaperAnchor(userText)) {
+    return resolvedQuestion
+  }
+
+  const safeQuestion: ResolvedUserQuestion = { ...resolvedQuestion }
+  delete safeQuestion.currentPaper
+  delete safeQuestion.referencedPapers
+  return safeQuestion
+}
+
 export function buildPlannerUserPrompt(
   context: AgentInputContext,
   recentMessages: string,
   userText: string,
 ): string {
-  const currentPaper = context.currentPaper ? {
-    title: context.currentPaper.title,
-    authors: context.currentPaper.authors.map((author) => author.name).slice(0, 4),
-    date: context.currentPaper.published_date ?? context.currentPaper.year,
-    doi: context.currentPaper.doi,
-    source: context.currentPaper.source,
-    sourceUrl: context.currentPaper.source_url,
-    openAccessUrl: context.currentPaper.open_access_pdf_url ?? context.currentPaper.open_access_url,
-    openAccessLandingUrl: context.currentPaper.open_access_landing_url,
-    hasOpenAccessPdf: Boolean(context.currentPaper.open_access_pdf_url ?? context.currentPaper.open_access_url),
-    abstractSnippet: context.currentPaper.abstract_text?.slice(0, 280),
-  } : null
-  const lastSearchResults = (context.lastSearchResults ?? []).slice(0, 12).map((result, index) => ({
+  const referencedPapers = context.resolvedQuestion?.referencedPapers ?? []
+  const exposeResultSets = Boolean(context.resolvedResultSetReference || hasStrongResultSetAnchor(userText))
+  const currentPaperSource = plannerCurrentPaperSource(context, referencedPapers, userText)
+  const currentPaper = currentPaperSource ? plannerPaperSummary(currentPaperSource) : null
+  const lastSearchResults = (exposeResultSets ? context.lastSearchResults ?? [] : []).slice(0, 12).map((result, index) => ({
     index: index + 1,
     title: result.title,
     authors: result.authors.map((author) => author.name).slice(0, 4),
@@ -114,7 +157,7 @@ export function buildPlannerUserPrompt(
     hasOpenAccessPdf: Boolean(result.open_access_pdf_url ?? result.open_access_url),
     abstractSnippet: result.abstract_text?.slice(0, 280),
   }))
-  const recentSearchResultSets = (context.recentSearchResultSets ?? []).slice(0, 10).map((set) => ({
+  const recentSearchResultSets = (exposeResultSets ? context.recentSearchResultSets ?? [] : []).slice(0, 10).map((set) => ({
     id: set.id,
     label: set.label,
     active: set.id === context.activeSearchResultSetId,
@@ -138,6 +181,7 @@ export function buildPlannerUserPrompt(
       hasOpenAccessPdf: Boolean(result.open_access_pdf_url ?? result.open_access_url),
     })),
   }))
+  const resolvedQuestion = plannerResolvedQuestion(context.resolvedQuestion, referencedPapers, userText)
   return `当前上下文：
 ${JSON.stringify({
   currentDate: context.currentDate,
@@ -147,7 +191,7 @@ ${JSON.stringify({
   activeProjectName: context.activeProjectName,
   selectedPaperTitle: context.selectedPaperTitle,
   currentPaper,
-  resolvedQuestion: context.resolvedQuestion,
+  resolvedQuestion,
   resolvedResultSetReference: context.resolvedResultSetReference,
   activeSearchResultSetId: context.activeSearchResultSetId,
   recentSearchResultSets,

@@ -31,7 +31,25 @@ export function LibraryPage() {
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([listPapers(), listCollections()])
+      .then(([list, colls]) => {
+        if (cancelled) return
+        setPapers(list)
+        setCollections(colls)
+        setError(null)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleImportClick = useCallback(async () => {
     try {

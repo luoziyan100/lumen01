@@ -5,6 +5,7 @@
  */
 import {
   hasStrongResultSetAnchor,
+  hasExplicitCurrentPaperAnchor,
   hasWeakPronounOnly,
   resolvePaperReference,
   resolveResultSetReference,
@@ -25,10 +26,6 @@ function hasPaperPronoun(text: string): boolean {
 
 function hasExplicitPaperSemantics(text: string): boolean {
   return /论文|文献|paper|papers|DOI|doi|arXiv|PDF|pdf|摘要|方法|实验|结论|贡献|局限|作者|引用|期刊|全文/.test(text)
-}
-
-function hasExplicitCurrentPaperAnchor(text: string): boolean {
-  return /这篇\s*(?:论文|paper|文献|文章)|该论文|当前论文|这篇文献|刚才那篇\s*(?:论文|文献|paper|文章)|这篇文章/i.test(text)
 }
 
 function recentTurnIsPaperFocused(input: RunResearchHarnessInput): boolean {
@@ -61,7 +58,7 @@ export function resolveUserQuestion(input: RunResearchHarnessInput): ResolvedUse
         referencedResultSetLabel: resultSet.label,
         referencedPaperIndices: indices,
         referencedPapers: papers,
-        currentPaper: input.context.currentPaper ?? undefined,
+        currentPaper: papers.length === 1 ? papers[0] : undefined,
         confidence: 0.95,
       }
     }
@@ -76,7 +73,7 @@ export function resolveUserQuestion(input: RunResearchHarnessInput): ResolvedUse
         referencedResultSetLabel: resultSet.label,
         referencedPaperIndices: indices,
         referencedPapers: papers,
-        currentPaper: input.context.currentPaper ?? undefined,
+        currentPaper: papers.length === 1 ? papers[0] : undefined,
         confidence: 0.8,
       }
     }
@@ -86,7 +83,6 @@ export function resolveUserQuestion(input: RunResearchHarnessInput): ResolvedUse
     return {
       originalText: input.userText,
       standaloneQuestion: input.userText,
-      currentPaper: input.context.currentPaper ?? undefined,
       confidence: 0.45,
     }
   }
@@ -141,7 +137,6 @@ export function resolveUserQuestion(input: RunResearchHarnessInput): ResolvedUse
   return {
     originalText: input.userText,
     standaloneQuestion: input.userText,
-    currentPaper: input.context.currentPaper ?? undefined,
     confidence: 0.5,
   }
 }

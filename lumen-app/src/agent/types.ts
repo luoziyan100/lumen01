@@ -223,6 +223,9 @@ export interface PaperEvidenceNote {
   text: string
   cacheHit: boolean
   pdfCacheHit: boolean
+  evidenceSource?: 'pdf_text' | 'abstract' | 'metadata' | 'download_failed'
+  pdfUrl?: string | null
+  pdfTempPath?: string | null
   warning?: string
 }
 
@@ -273,4 +276,37 @@ export interface ResearchAgentResult {
   reflection?: SearchReflection
   risks?: SensorResult[]
   trace: AgentRun
+}
+
+export interface ToolEvidenceBundle {
+  toolName: AgentToolName
+  plan: SearchPlan
+  toolResults: ContextToolResult[]
+  evidence: PaperEvidenceNote[]
+  searchBatches: SearchBatch[]
+  searchResults: SearchResult[]
+  searchResultSet?: SearchResultSet
+  currentPaper?: SearchResult
+  currentPaperEvidenceLevel?: CurrentPaperEvidenceLevel
+  deepResearchReport?: DeepResearchReportArtifact
+  replyOverride?: string
+  warnings: string[]
+}
+
+export type ResearchArtifactWriteback =
+  | { type: 'search_results'; data: unknown; noteId?: string | null }
+  | { type: 'current_paper'; data: unknown; noteId?: string | null }
+  | { type: 'paper_preview'; data: unknown; noteId?: string | null }
+  | { type: 'deep_research_report'; data: unknown; noteId?: string | null }
+
+export interface ResearchWritebackState {
+  searchResultSet?: SearchResultSet
+  lastSearchResults?: SearchResult[]
+  currentPaper?: SearchResult
+}
+
+export interface ResearchWritebackPlan {
+  assistantReply: string
+  artifacts: ResearchArtifactWriteback[]
+  state: ResearchWritebackState
 }

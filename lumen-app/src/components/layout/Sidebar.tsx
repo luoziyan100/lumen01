@@ -50,7 +50,17 @@ export function Sidebar() {
     setCollections(list)
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    let cancelled = false
+    listCollections()
+      .then((list) => {
+        if (!cancelled) setCollections(list)
+      })
+      .catch(console.error)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleCreate = useCallback(async () => {
     const name = newName.trim()

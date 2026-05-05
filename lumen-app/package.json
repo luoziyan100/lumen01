@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "research:judge": "node --experimental-strip-types scripts/research-judgment-cli.ts",
+    "test:research": "node --experimental-strip-types --test tests/research-judgment.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

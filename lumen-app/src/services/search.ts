@@ -3,7 +3,7 @@
  * [OUTPUT]: 对外提供 searchPapers, formatSearchResults
  * [POS]: services 层的学术论文搜索（通过 Rust 后端调用 OpenAlex / arXiv / Semantic Scholar / Crossref），被 ResearchPage 消费
  */
-import { hasTauriInvoke, invokeTauri } from './tauri'
+import { hasTauriInvoke, invokeTauri } from './tauri.ts'
 
 export interface SearchAuthor {
   name: string

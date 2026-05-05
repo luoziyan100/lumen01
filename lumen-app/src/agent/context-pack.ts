@@ -3,7 +3,7 @@
  * [OUTPUT]: 对外提供 Agent Context Pack 构造和格式化
  * [POS]: agent 模块的上下文打包层，把历史、对象、决策和证据整理给 planner/synthesizer
  */
-import { TOOL_MANIFEST } from './tool-manifest'
+import { TOOL_MANIFEST } from './tool-manifest.ts'
 import type {
   AgentContextPack,
   ContextToolResult,
@@ -13,7 +13,7 @@ import type {
   SearchBatch,
   SearchPlan,
   SearchResultSet,
-} from './types'
+} from './types.ts'
 
 function activeResultSet(input: RunResearchHarnessInput): SearchResultSet | undefined {
   const sets = input.context.recentSearchResultSets ?? []
@@ -54,6 +54,9 @@ export function buildContextPack(
     ],
   }
 }
+
+export const buildPlannerContextPack = buildContextPack
+export const buildSynthesisContextPack = buildContextPack
 
 export function formatContextPackForModel(pack: AgentContextPack): string {
   const referenced = pack.activeObjects.referencedPapers
