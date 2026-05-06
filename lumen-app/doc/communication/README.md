@@ -19,6 +19,16 @@ doc/communication/
 
 最新完成的实现记录是：
 
+`review/2026-05-05.03.done.notes.cleanup-dead-code-and-history-window.md`
+
+用途：删除 research-judgment.ts 等死代码 + 精简 types.ts + Agent 对话历史窗口管理（增量存储 + trimHistory）。
+
+对应 active brief 已归档为：
+
+`archive/2026-05-05.03.active.brief.cleanup-dead-code-and-history-window.md`
+
+上一份完成的实现记录是：
+
 `review/2026-05-05.02b.done.notes.agent-loop-integration.md`
 
 用途：Agent Loop + Tool Use 已替代正则管道架构，解决“这5篇做报告”等自然语言引用消解失败的根本问题。
@@ -79,6 +89,8 @@ doc/communication/
 
 | 文件 | 状态 | 给谁看 | 用途 |
 | --- | --- | --- | --- |
+| `review/2026-05-05.03.done.notes.cleanup-dead-code-and-history-window.md` | DONE | Review/Owner | 死代码清理、types.ts 精简、Agent history window 与增量存储完成记录 |
+| `archive/2026-05-05.03.active.brief.cleanup-dead-code-and-history-window.md` | DONE | 归档 | Cleanup Dead Code + History Window 原 brief，已完成 |
 | `review/2026-05-05.02b.done.notes.agent-loop-integration.md` | DONE | Review/Owner | Agent Loop + Tool Use 集成完成记录，含 A-E 场景验证 |
 | `review/2026-05-05.02a.done.notes.agent-adapter-layer.md` | DONE | Review/Owner | LLM Adapter Layer 完成记录，含 Claude/OpenAI/ReAct message format 测试 |
 | `archive/2026-05-05.02.active.brief.agent-loop-tool-use-refactor.md` | DONE | 归档 | Agent Loop + Tool Use 原 brief，已完成 |

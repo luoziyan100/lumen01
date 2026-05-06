@@ -4,6 +4,7 @@ import { buildSystemPrompt } from './system-prompt.ts'
 import { RESEARCH_TOOLS } from './tools/definitions.ts'
 import { executeResearchTool, type ToolExecutionContext } from './tools/executor.ts'
 import { createAgentRun, failAgentRun, finishAgentRun, recordAgentStep } from './traces.ts'
+import { trimHistory } from './history-window.ts'
 import type { AgentRun } from './types.ts'
 
 export interface AgentLoopInput {
@@ -38,7 +39,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   const executeTool = input.executeTool ?? executeResearchTool
   const messages: AgentMessage[] = [
     { role: 'system', content: buildSystemPrompt(input.context) },
-    ...input.conversationHistory,
+    ...trimHistory(input.conversationHistory),
     { role: 'user', content: input.userText, images: input.images },
   ]
   const newMessages: AgentMessage[] = []

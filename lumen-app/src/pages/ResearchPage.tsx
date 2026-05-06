@@ -33,6 +33,7 @@ interface DisplayMessage {
 }
 
 const AGENT_HISTORY_ROLE = 'agent_history'
+const AGENT_HISTORY_DELTA_ROLE = 'agent_history_delta'
 
 function displayMessagesFromNotes(notes: ResearchNote[]): DisplayMessage[] {
   return notes
@@ -53,16 +54,40 @@ function isAgentMessage(value: unknown): value is AgentMessage {
   )
 }
 
+function parseAgentMessages(content: string): AgentMessage[] {
+  try {
+    const parsed = JSON.parse(content) as unknown
+    if (Array.isArray(parsed) && parsed.every(isAgentMessage)) return parsed
+  } catch {
+    // Ignore corrupt history notes and keep loading the visible conversation.
+  }
+  return []
+}
+
 function agentHistoryFromNotes(notes: ResearchNote[]): AgentMessage[] {
-  const historyNote = [...notes].reverse().find((note) => note.role === AGENT_HISTORY_ROLE)
-  if (historyNote) {
-    try {
-      const parsed = JSON.parse(historyNote.content) as unknown
-      if (Array.isArray(parsed) && parsed.every(isAgentMessage)) return parsed
-    } catch {
-      // Fall back to visible notes below.
+  let history: AgentMessage[] = []
+  let loadedStoredHistory = false
+
+  for (const note of notes) {
+    if (note.role === AGENT_HISTORY_ROLE) {
+      const snapshot = parseAgentMessages(note.content)
+      if (snapshot.length > 0) {
+        history = snapshot
+        loadedStoredHistory = true
+      }
+      continue
+    }
+
+    if (note.role === AGENT_HISTORY_DELTA_ROLE) {
+      const delta = parseAgentMessages(note.content)
+      if (delta.length > 0) {
+        history = [...history, ...delta]
+        loadedStoredHistory = true
+      }
     }
   }
+
+  if (loadedStoredHistory) return history
 
   return notes
     .filter((note) => note.role === 'user' || note.role === 'assistant')
@@ -260,13 +285,13 @@ export function ResearchPage() {
         signal: controller.signal,
       })
       const reply = agentResult.reply
-      const nextAgentHistory: AgentMessage[] = [
-        ...agentHistory,
+      const historyDelta: AgentMessage[] = [
         { role: 'user', content: text, images },
         ...agentResult.newMessages,
       ]
+      const nextAgentHistory: AgentMessage[] = [...agentHistory, ...historyDelta]
       await addResearchNote(projectId, 'assistant', reply)
-      await addResearchNote(projectId, AGENT_HISTORY_ROLE, JSON.stringify(nextAgentHistory))
+      await addResearchNote(projectId, AGENT_HISTORY_DELTA_ROLE, JSON.stringify(historyDelta))
       setAgentHistory(nextAgentHistory)
 
       setMessages((prev) => [

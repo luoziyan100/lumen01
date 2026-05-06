@@ -10,8 +10,7 @@
     "test:agent-loop": "node --experimental-strip-types --test tests/agent-loop.test.ts src/agent/adapters/__tests__/message-format.test.ts",
     "test:codex": "node --experimental-strip-types --test tests/openai-codex-oauth.test.ts",
     "test:markdown": "node --experimental-strip-types --test tests/markdown-table-layout.test.ts",
-    "research:judge": "node --experimental-strip-types scripts/research-judgment-cli.ts",
-    "test:research": "node --experimental-strip-types --test tests/research-judgment.test.ts",
+    "test:history-window": "node --experimental-strip-types --test tests/history-window.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
