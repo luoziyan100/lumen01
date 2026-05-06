@@ -548,11 +548,11 @@ fn annotate_result(
     let tier = journal_tier(result.journal.as_deref());
     result.is_top_journal = tier > 0;
 
-    let citation_score = ((result.citation_count.max(0) as f32) + 1.0).ln() * 8.0;
+    let citation_score = ((result.citation_count.max(0) as f32) + 1.0).ln() * 2.0;
     let tier_score = match tier {
-        3 => 55.0,
-        2 => 35.0,
-        1 => 20.0,
+        3 => 8.0,
+        2 => 5.0,
+        1 => 3.0,
         _ => 0.0,
     };
     let search_score = relevance_score(&result, tokens);

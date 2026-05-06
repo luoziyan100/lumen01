@@ -22,9 +22,9 @@ const tools: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        queries: { type: 'array', items: { type: 'string' } },
+        query: { type: 'string' },
       },
-      required: ['queries'],
+      required: ['query'],
     },
   },
 ]
@@ -36,7 +36,7 @@ const conversation: AgentMessage[] = [
     role: 'assistant',
     content: '',
     toolCalls: [
-      { id: 'toolu_1', name: 'academic_search', arguments: { queries: ['LLM'] } },
+      { id: 'toolu_1', name: 'academic_search', arguments: { query: 'LLM' } },
     ],
   },
   { role: 'tool_result', toolCallId: 'toolu_1', content: '{"results":[{"title":"Paper A"}]}' },
@@ -60,7 +60,7 @@ test('Claude adapter converts tool_use and tool_result messages to Anthropic for
     {
       role: 'assistant',
       content: [
-        { type: 'tool_use', id: 'toolu_1', name: 'academic_search', input: { queries: ['LLM'] } },
+        { type: 'tool_use', id: 'toolu_1', name: 'academic_search', input: { query: 'LLM' } },
       ],
     },
     {
@@ -77,19 +77,19 @@ test('Claude adapter parses mixed text and tool_use content blocks', () => {
   const parsed = parseClaudeResponse({
     content: [
       { type: 'text', text: 'I will search.' },
-      { type: 'tool_use', id: 'toolu_2', name: 'academic_search', input: { queries: ['attention'] } },
+      { type: 'tool_use', id: 'toolu_2', name: 'academic_search', input: { query: 'attention' } },
     ],
   })
 
   assert.equal(parsed.text, 'I will search.')
   assert.deepEqual(parsed.toolCalls, [
-    { id: 'toolu_2', name: 'academic_search', arguments: { queries: ['attention'] } },
+    { id: 'toolu_2', name: 'academic_search', arguments: { query: 'attention' } },
   ])
   assert.deepEqual(parsed.message, {
     role: 'assistant',
     content: 'I will search.',
     toolCalls: [
-      { id: 'toolu_2', name: 'academic_search', arguments: { queries: ['attention'] } },
+      { id: 'toolu_2', name: 'academic_search', arguments: { query: 'attention' } },
     ],
   })
 })
@@ -118,7 +118,7 @@ test('OpenAI adapter converts tool calls and tool results to Chat Completions fo
         {
           id: 'toolu_1',
           type: 'function',
-          function: { name: 'academic_search', arguments: '{"queries":["LLM"]}' },
+          function: { name: 'academic_search', arguments: '{"query":"LLM"}' },
         },
       ],
     },
@@ -140,7 +140,7 @@ test('OpenAI adapter parses function-call arguments from JSON strings', () => {
               type: 'function',
               function: {
                 name: 'academic_search',
-                arguments: '{"queries":["memory augmented LLM"]}',
+                arguments: '{"query":"memory augmented LLM"}',
               },
             },
           ],
@@ -152,13 +152,13 @@ test('OpenAI adapter parses function-call arguments from JSON strings', () => {
 
   assert.equal(parsed.text, undefined)
   assert.deepEqual(parsed.toolCalls, [
-    { id: 'call_1', name: 'academic_search', arguments: { queries: ['memory augmented LLM'] } },
+    { id: 'call_1', name: 'academic_search', arguments: { query: 'memory augmented LLM' } },
   ])
   assert.deepEqual(parsed.message, {
     role: 'assistant',
     content: '',
     toolCalls: [
-      { id: 'call_1', name: 'academic_search', arguments: { queries: ['memory augmented LLM'] } },
+      { id: 'call_1', name: 'academic_search', arguments: { query: 'memory augmented LLM' } },
     ],
   })
 })
@@ -178,9 +178,9 @@ test('ReAct fallback injects tool instructions and parses tool_call blocks', () 
     { role: 'user', content: 'Observation for react_1:\n{"ok":true}' },
   ])
 
-  const parsed = parseReActResponse('<tool_call>\n{"name":"academic_search","arguments":{"queries":["LLM"]}}\n</tool_call>', 'react_fixed')
+  const parsed = parseReActResponse('<tool_call>\n{"name":"academic_search","arguments":{"query":"LLM"}}\n</tool_call>', 'react_fixed')
   assert.deepEqual(parsed.toolCalls, [
-    { id: 'react_fixed', name: 'academic_search', arguments: { queries: ['LLM'] } },
+    { id: 'react_fixed', name: 'academic_search', arguments: { query: 'LLM' } },
   ])
   assert.equal(parsed.text, undefined)
 })

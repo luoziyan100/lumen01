@@ -1,4 +1,4 @@
-import { searchPapers, type SearchOptions, type SearchResult } from '../../services/search.ts'
+import { searchPapers, type SearchResponse, type SearchResult } from '../../services/search.ts'
 
 export interface AcademicSearchResult {
   total: number
@@ -7,28 +7,28 @@ export interface AcademicSearchResult {
     title: string
     authors: string[]
     year: number | null
+    published_date: string | null
     doi: string | null
     source: string
     source_url: string
     abstract_snippet: string | null
     open_access_url: string | null
     citation_count: number
+    journal: string | null
   }>
-}
-
-interface AcademicSearchArgs {
-  queries?: unknown
-  time_range?: { from_date?: unknown; to_date?: unknown }
-  sort?: unknown
-  mode?: unknown
-  arxiv_categories?: unknown
-  limit?: unknown
 }
 
 interface SearchBatch {
   total: number
   results: SearchResult[]
 }
+
+type SearchPapersFn = (
+  query: string,
+  limit: number,
+  options: { sortMode: 'newest' },
+  signal?: AbortSignal,
+) => Promise<SearchResponse>
 
 function searchResultKey(result: SearchResult): string {
   if (result.doi) return `doi:${result.doi.toLowerCase()}`
@@ -57,38 +57,13 @@ export function mergeSearchBatches(batches: SearchBatch[], limit: number): Searc
     if (!existing.source.includes(result.source)) existing.source = `${existing.source} / ${result.source}`
   }
   return Array.from(byKey.values())
-    .sort((a, b) => b.quality_score - a.quality_score)
+    .sort((a, b) => {
+      const dateA = a.published_date ?? ''
+      const dateB = b.published_date ?? ''
+      if (dateA !== dateB) return dateB.localeCompare(dateA)
+      return b.quality_score - a.quality_score
+    })
     .slice(0, limit)
-}
-
-function stringArray(value: unknown, fallback: string[]): string[] {
-  if (!Array.isArray(value)) return fallback
-  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).slice(0, 3)
-}
-
-function boundedLimit(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? Math.max(1, Math.min(20, Math.round(value)))
-    : 10
-}
-
-function optionsFromArgs(args: AcademicSearchArgs): SearchOptions {
-  const mode = args.mode === 'paper_lookup'
-    ? 'paper_lookup'
-    : args.mode === 'arxiv_feed'
-      ? 'arxiv_category_feed'
-      : 'keyword_search'
-  return {
-    fromDate: typeof args.time_range?.from_date === 'string' ? args.time_range.from_date : undefined,
-    untilDate: typeof args.time_range?.to_date === 'string' ? args.time_range.to_date : undefined,
-    sortMode: args.sort === 'newest' || args.sort === 'balanced' ? args.sort : 'relevance',
-    searchMode: mode,
-    arxivCategories: Array.isArray(args.arxiv_categories)
-      ? args.arxiv_categories.filter((item): item is string => typeof item === 'string')
-      : undefined,
-    feedLimit: mode === 'arxiv_category_feed' ? boundedLimit(args.limit) : undefined,
-    includeTotalCount: mode === 'arxiv_category_feed',
-  }
 }
 
 function formatResult(result: SearchResult, index: number): AcademicSearchResult['results'][number] {
@@ -97,28 +72,29 @@ function formatResult(result: SearchResult, index: number): AcademicSearchResult
     title: result.title,
     authors: result.authors.map((author) => author.name),
     year: result.year,
+    published_date: result.published_date,
     doi: result.doi,
     source: result.source,
     source_url: result.source_url,
-    abstract_snippet: result.abstract_text ? result.abstract_text.slice(0, 800) : null,
+    abstract_snippet: result.abstract_text ? result.abstract_text.slice(0, 1200) : null,
     open_access_url: result.open_access_pdf_url ?? result.open_access_url ?? result.open_access_landing_url,
     citation_count: result.citation_count,
+    journal: result.journal,
   }
 }
 
-export async function executeAcademicSearch(rawArgs: Record<string, unknown>, signal?: AbortSignal): Promise<AcademicSearchResult> {
-  const args = rawArgs as AcademicSearchArgs
-  const queries = stringArray(args.queries, ['large language model research'])
-  const limit = boundedLimit(args.limit)
-  const options = optionsFromArgs(args)
-  const batches: SearchBatch[] = []
+export async function executeAcademicSearch(
+  rawArgs: Record<string, unknown>,
+  signal?: AbortSignal,
+  search: SearchPapersFn = searchPapers,
+): Promise<AcademicSearchResult> {
+  const query = typeof rawArgs.query === 'string' ? rawArgs.query.trim() : ''
+  if (!query) return { total: 0, results: [] }
 
-  for (const query of queries) {
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    batches.push(await searchPapers(query, limit, options, signal))
-  }
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  const batches = [await search(query, 20, { sortMode: 'newest' }, signal)]
 
-  const merged = mergeSearchBatches(batches, limit)
+  const merged = mergeSearchBatches(batches, 20)
   return {
     total: merged.length,
     results: merged.map((result, index) => formatResult(result, index + 1)),

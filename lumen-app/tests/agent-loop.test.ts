@@ -5,6 +5,7 @@ import test from 'node:test'
 import { runAgentLoop } from '../src/agent/loop.ts'
 import { buildSystemPrompt } from '../src/agent/system-prompt.ts'
 import { RESEARCH_TOOLS } from '../src/agent/tools/definitions.ts'
+import { executeAcademicSearch, mergeSearchBatches } from '../src/agent/tools/academic-search.ts'
 import { executeReadPapers } from '../src/agent/tools/read-papers.ts'
 import type { AgentMessage, LLMAdapter, LLMResponse, ToolDefinition } from '../src/agent/adapters/types.ts'
 import type { PaperPreviewData } from '../src/services/paper-preview.ts'
@@ -117,7 +118,7 @@ test('scenario E searches local library, appends tool_result history, then retur
 
 test('scenario A searches papers through academic_search and returns a list', async () => {
   const adapter = new ScriptedAdapter([
-    toolResponse('search-1', 'academic_search', { queries: ['latest LLM papers'], sort: 'newest', limit: 5 }),
+    toolResponse('search-1', 'academic_search', { query: 'latest LLM papers May 2026' }),
     textResponse('找到 5 篇最新 LLM 论文。'),
   ])
 
@@ -126,7 +127,10 @@ test('scenario A searches papers through academic_search and returns a list', as
     conversationHistory: [],
     context: { currentDate: '2026-05-05', timezone: 'America/Los_Angeles', hasLocalPapers: false, localPaperCount: 0 },
     adapter,
-    executeTool: async (toolCall) => ({ total: 5, results: [{ index: 1, title: 'Paper A' }], called: toolCall.name }),
+    executeTool: async (toolCall) => {
+      assert.deepEqual(toolCall.arguments, { query: 'latest LLM papers May 2026' })
+      return { total: 5, results: [{ index: 1, title: 'Paper A' }], called: toolCall.name }
+    },
   })
 
   assert.equal(result.reply, '找到 5 篇最新 LLM 论文。')
@@ -211,9 +215,13 @@ test('research tools expose only the three loop tools and avoid R-style anchors'
     'search_local_library',
   ])
   assert.equal(RESEARCH_TOOLS.some((tool) => /R1|R2|result set|reference binding/i.test(tool.description)), false)
+  const searchTool = RESEARCH_TOOLS.find((tool) => tool.name === 'academic_search')
+  assert.ok(searchTool)
+  assert.deepEqual(searchTool.parameters.required, ['query'])
+  assert.deepEqual(Object.keys(searchTool.parameters.properties), ['query'])
 })
 
-test('system prompt routes by tool use without old result-set vocabulary', () => {
+test('system prompt tells the model to put date constraints in the academic_search query', () => {
   const prompt = buildSystemPrompt({
     currentDate: '2026-05-05',
     timezone: 'America/Los_Angeles',
@@ -222,9 +230,66 @@ test('system prompt routes by tool use without old result-set vocabulary', () =>
   })
 
   assert.match(prompt, /调用 academic_search/)
+  assert.match(prompt, /query 用英文/)
+  assert.match(prompt, /日期信息直接写进 query/)
+  assert.match(prompt, /搜索结果按日期排序返回/)
   assert.match(prompt, /调用 read_papers/)
   assert.match(prompt, /search_local_library/)
+  assert.equal(prompt.includes('academic_search 的 ' + ['quer', 'ies'].join('') + ' 用英文'), false)
   assert.doesNotMatch(prompt, /R1|R2|result set|reference binding/i)
+})
+
+test('mergeSearchBatches sorts by published_date before quality_score', () => {
+  const olderHighQuality = paper({
+    id: 'old-paper',
+    title: 'Old High Quality Paper',
+    doi: '10.1234/old.high.quality',
+    published_date: '2024-01-01',
+    quality_score: 100,
+  })
+  const newerLowerQuality = paper({
+    id: 'new-paper',
+    title: 'New Lower Quality Paper',
+    doi: '10.1234/new.lower.quality',
+    published_date: '2026-05-06',
+    quality_score: 1,
+  })
+
+  const merged = mergeSearchBatches([{ total: 2, results: [olderHighQuality, newerLowerQuality] }], 2)
+
+  assert.deepEqual(merged.map((result) => result.title), [
+    'New Lower Quality Paper',
+    'Old High Quality Paper',
+  ])
+})
+
+test('executeAcademicSearch uses one newest query and returns date and journal metadata', async () => {
+  const calls: Array<{ query: string; limit: number; options: unknown }> = []
+  const result = await executeAcademicSearch(
+    { query: 'graph neural networks May 2026' },
+    undefined,
+    async (query, limit, options) => {
+      calls.push({ query, limit, options })
+      return {
+        total: 1,
+        results: [paper({
+          title: 'Fresh Graph Paper',
+          abstract_text: 'a'.repeat(1300),
+          journal: 'NeurIPS',
+          published_date: '2026-05-06',
+        })],
+      }
+    },
+  )
+
+  assert.deepEqual(calls, [{
+    query: 'graph neural networks May 2026',
+    limit: 20,
+    options: { sortMode: 'newest' },
+  }])
+  assert.equal(result.results[0].published_date, '2026-05-06')
+  assert.equal(result.results[0].journal, 'NeurIPS')
+  assert.equal(result.results[0].abstract_snippet?.length, 1200)
 })
 
 test('read_papers resolves fuzzy titles from recent academic_search tool results', async () => {

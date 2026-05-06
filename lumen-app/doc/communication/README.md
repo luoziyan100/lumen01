@@ -19,6 +19,16 @@ doc/communication/
 
 最新完成的实现记录是：
 
+`review/2026-05-06.01.done.notes.search-tool-simplification.md`
+
+用途：简化 academic_search 工具参数（6→1，只保留 query），改为日期排序，返回 published_date/journal 给模型，让模型判断论文重要性而非硬编码 quality_score。参考 Claude Code WebSearch 设计。
+
+对应 active brief 已归档为：
+
+`archive/2026-05-06.01.active.brief.search-tool-simplification.md`
+
+上一份完成的实现记录是：
+
 `review/2026-05-05.03.done.notes.cleanup-dead-code-and-history-window.md`
 
 用途：删除 research-judgment.ts 等死代码 + 精简 types.ts + Agent 对话历史窗口管理（增量存储 + trimHistory）。
@@ -89,6 +99,8 @@ doc/communication/
 
 | 文件 | 状态 | 给谁看 | 用途 |
 | --- | --- | --- | --- |
+| `review/2026-05-06.01.done.notes.search-tool-simplification.md` | DONE | Review/Owner | Search Tool Simplification 完成记录，含单 query、日期排序、metadata 返回和 Rust 权重调整 |
+| `archive/2026-05-06.01.active.brief.search-tool-simplification.md` | DONE | 归档 | Search Tool Simplification 原 brief，已完成 |
 | `review/2026-05-05.03.done.notes.cleanup-dead-code-and-history-window.md` | DONE | Review/Owner | 死代码清理、types.ts 精简、Agent history window 与增量存储完成记录 |
 | `archive/2026-05-05.03.active.brief.cleanup-dead-code-and-history-window.md` | DONE | 归档 | Cleanup Dead Code + History Window 原 brief，已完成 |
 | `review/2026-05-05.02b.done.notes.agent-loop-integration.md` | DONE | Review/Owner | Agent Loop + Tool Use 集成完成记录，含 A-E 场景验证 |

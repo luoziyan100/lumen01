@@ -3,43 +3,16 @@ import type { ToolDefinition } from '../adapters/types.ts'
 export const RESEARCH_TOOLS: ToolDefinition[] = [
   {
     name: 'academic_search',
-    description: '搜索外部学术论文数据库（OpenAlex、arXiv、Semantic Scholar、Crossref）。当用户要求搜索、推荐、查找论文时调用。返回论文列表（标题、作者、摘要、DOI、链接）。',
+    description: '搜索学术论文数据库（OpenAlex、arXiv、Semantic Scholar、Crossref）。返回论文列表。',
     parameters: {
       type: 'object',
       properties: {
-        queries: {
-          type: 'array',
-          items: { type: 'string' },
-          description: '1-3 条英文学术检索 query',
-        },
-        time_range: {
-          type: 'object',
-          properties: {
-            from_date: { type: 'string', description: 'YYYY-MM-DD' },
-            to_date: { type: 'string', description: 'YYYY-MM-DD' },
-          },
-        },
-        sort: {
+        query: {
           type: 'string',
-          enum: ['relevance', 'newest', 'balanced'],
-          description: '排序模式',
-        },
-        mode: {
-          type: 'string',
-          enum: ['keyword', 'paper_lookup', 'arxiv_feed'],
-          description: '搜索模式。keyword=关键词搜索, paper_lookup=查找特定论文, arxiv_feed=arXiv分类feed',
-        },
-        arxiv_categories: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'arXiv 分类列表，如 ["cs.AI","cs.LG"]。仅 arxiv_feed 模式需要。',
-        },
-        limit: {
-          type: 'number',
-          description: '返回论文数量，默认 10',
+          description: '英文学术搜索词。把日期、领域、关键词都写进来。',
         },
       },
-      required: ['queries'],
+      required: ['query'],
     },
   },
   {
