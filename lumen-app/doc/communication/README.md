@@ -19,6 +19,16 @@ doc/communication/
 
 最新完成的实现记录是：
 
+`review/2026-05-07.01.done.notes.citation-tools-and-multistep-reasoning.md`
+
+用途：新增 search_citations / search_references 引用链工具（Semantic Scholar API），重写 system prompt 引导多步推理（搜索自检、引用链导航、证据等级守卫）。工具从 3 个扩展到 5 个。
+
+对应 active brief 已归档为：
+
+`archive/2026-05-07.01.active.brief.citation-tools-and-multistep-reasoning.md`
+
+上一份完成的实现记录是：
+
 `review/2026-05-06.01.done.notes.search-tool-simplification.md`
 
 用途：简化 academic_search 工具参数（6→1，只保留 query），改为日期排序，返回 published_date/journal 给模型，让模型判断论文重要性而非硬编码 quality_score。参考 Claude Code WebSearch 设计。
@@ -99,6 +109,8 @@ doc/communication/
 
 | 文件 | 状态 | 给谁看 | 用途 |
 | --- | --- | --- | --- |
+| `review/2026-05-07.01.done.notes.citation-tools-and-multistep-reasoning.md` | DONE | Review/Owner | Citation Tools + Multistep Reasoning 完成记录，含引用链工具、Semantic Scholar API 和多步推理 prompt |
+| `archive/2026-05-07.01.active.brief.citation-tools-and-multistep-reasoning.md` | DONE | 归档 | Citation Tools + Multistep Reasoning 原 brief，已完成 |
 | `review/2026-05-06.01.done.notes.search-tool-simplification.md` | DONE | Review/Owner | Search Tool Simplification 完成记录，含单 query、日期排序、metadata 返回和 Rust 权重调整 |
 | `archive/2026-05-06.01.active.brief.search-tool-simplification.md` | DONE | 归档 | Search Tool Simplification 原 brief，已完成 |
 | `review/2026-05-05.03.done.notes.cleanup-dead-code-and-history-window.md` | DONE | Review/Owner | 死代码清理、types.ts 精简、Agent history window 与增量存储完成记录 |

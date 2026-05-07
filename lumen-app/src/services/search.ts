@@ -39,7 +39,7 @@ export interface SearchResponse {
   untilDate?: string
 }
 
-export type SearchMode = 'keyword_search' | 'paper_lookup' | 'recent_ai_feed' | 'arxiv_category_feed'
+export type SearchMode = 'keyword_search' | 'paper_lookup' | 'recent_ai_feed' | 'arxiv_category_feed' | 'citations' | 'references'
 export type SearchSourceHint = 'all' | 'arxiv' | 'openalex' | 'semantic_scholar' | 'crossref'
 export type CategoryPreset = 'ai' | 'llm' | 'vision' | 'robotics' | 'custom'
 
@@ -79,6 +79,36 @@ export async function searchPapers(
   if (!res.ok) {
     throw new Error(`搜索请求失败 (${res.status}): ${await res.text()}`)
   }
+  return res.json()
+}
+
+export async function searchCitations(
+  paperId: string,
+  limit = 20,
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
+  if (hasTauriInvoke()) {
+    return invokeTauri<SearchResponse>('search_paper_citations', { paperId, limit })
+  }
+
+  const params = new URLSearchParams({ paperId, limit: String(limit) })
+  const res = await fetch(`/api/paper-citations?${params.toString()}`, { signal })
+  if (!res.ok) throw new Error(`引用查询失败 (${res.status}): ${await res.text()}`)
+  return res.json()
+}
+
+export async function searchReferences(
+  paperId: string,
+  limit = 20,
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
+  if (hasTauriInvoke()) {
+    return invokeTauri<SearchResponse>('search_paper_references', { paperId, limit })
+  }
+
+  const params = new URLSearchParams({ paperId, limit: String(limit) })
+  const res = await fetch(`/api/paper-references?${params.toString()}`, { signal })
+  if (!res.ok) throw new Error(`参考文献查询失败 (${res.status}): ${await res.text()}`)
   return res.json()
 }
 

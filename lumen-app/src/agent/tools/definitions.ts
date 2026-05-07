@@ -50,4 +50,32 @@ export const RESEARCH_TOOLS: ToolDefinition[] = [
       required: ['query'],
     },
   },
+  {
+    name: 'search_citations',
+    description: '查询谁引用了指定论文（前向引用链）。用于了解一篇论文的影响力和后续工作。',
+    parameters: {
+      type: 'object',
+      properties: {
+        paper_id: {
+          type: 'string',
+          description: '论文标识符。支持 Semantic Scholar ID、DOI（如 "DOI:10.1234/example"）或 arXiv ID（如 "arXiv:2301.00001"）。',
+        },
+      },
+      required: ['paper_id'],
+    },
+  },
+  {
+    name: 'search_references',
+    description: '查询指定论文引用了哪些文献（后向引用链）。用于了解一篇论文的理论基础和前置工作。',
+    parameters: {
+      type: 'object',
+      properties: {
+        paper_id: {
+          type: 'string',
+          description: '论文标识符。支持 Semantic Scholar ID、DOI（如 "DOI:10.1234/example"）或 arXiv ID（如 "arXiv:2301.00001"）。',
+        },
+      },
+      required: ['paper_id'],
+    },
+  },
 ]

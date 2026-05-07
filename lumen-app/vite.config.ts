@@ -79,6 +79,11 @@ interface SemanticPaper {
   externalIds?: { DOI?: string }
 }
 
+interface SemanticPaperLink {
+  citingPaper?: SemanticPaper
+  citedPaper?: SemanticPaper
+}
+
 interface CrossrefWork {
   DOI?: string
   title?: string[]
@@ -532,6 +537,45 @@ async function searchSemanticScholar(query: string, limit: number, options: DevS
   })
 }
 
+function semanticPaperToResult(paper: SemanticPaper): DevSearchResult[] {
+  if (!paper.title) return []
+  const openAccessPdfUrl = paper.openAccessPdf?.url ?? null
+  const sourceUrl = paper.url ?? (paper.paperId ? `https://www.semanticscholar.org/paper/${paper.paperId}` : '')
+  return [{
+    id: paper.paperId ?? '',
+    title: paper.title,
+    abstract_text: paper.abstract ?? null,
+    authors: (paper.authors ?? [])
+      .map((a) => a.name)
+      .filter((name): name is string => Boolean(name))
+      .map((name) => ({ name })),
+    year: paper.year ?? null,
+    citation_count: paper.citationCount ?? 0,
+    open_access_url: openAccessPdfUrl,
+    open_access_pdf_url: openAccessPdfUrl,
+    open_access_landing_url: sourceUrl || null,
+    source_url: sourceUrl,
+    source: 'Semantic Scholar',
+    journal: paper.journal?.name ?? paper.venue ?? null,
+    doi: paper.externalIds?.DOI ?? null,
+    published_date: paper.publicationDate ?? dateFromYear(paper.year ?? null),
+    is_top_journal: false,
+    quality_score: 0,
+  }]
+}
+
+async function searchSemanticPaperLinks(paperId: string, limit: number, direction: 'citations' | 'references'): Promise<DevSearchResult[]> {
+  const fields = 'paperId,title,abstract,year,publicationDate,citationCount,authors,url,openAccessPdf,venue,journal,externalIds'
+  const params = new URLSearchParams({ fields, limit: String(limit) })
+  const url = `https://api.semanticscholar.org/graph/v1/paper/${encodeURIComponent(paperId)}/${direction}?${params.toString()}`
+  const apiKey = process.env.SEMANTIC_SCHOLAR_API_KEY?.trim()
+  const data = await fetch(url, apiKey ? { headers: { 'x-api-key': apiKey } } : undefined)
+    .then((res) => res.json()) as { data?: SemanticPaperLink[] }
+  return (data.data ?? []).flatMap((link) => (
+    semanticPaperToResult(direction === 'citations' ? link.citingPaper ?? {} : link.citedPaper ?? {})
+  ))
+}
+
 function crossrefYear(work: CrossrefWork): number | null {
   const publishedDate = crossrefPublishedDate(work)
   return publishedDate ? Number(publishedDate.slice(0, 4)) : null
@@ -771,6 +815,42 @@ async function handleSearchPapers(req: IncomingMessage, res: ServerResponse, nex
     res.statusCode = 500
     res.end(error instanceof Error ? error.message : String(error))
   }
+}
+
+async function handlePaperLinks(req: IncomingMessage, res: ServerResponse, next: () => void, direction: 'citations' | 'references') {
+  if (req.method !== 'GET' || !req.url) {
+    next()
+    return
+  }
+
+  try {
+    const url = new URL(req.url, 'http://localhost')
+    const paperId = url.searchParams.get('paperId')?.trim()
+    const limit = Math.max(1, Math.min(50, Number(url.searchParams.get('limit') ?? 20)))
+    if (!paperId) {
+      res.statusCode = 400
+      res.end('Missing paperId')
+      return
+    }
+    const results = await searchSemanticPaperLinks(paperId, limit, direction)
+    writeJson(res, 200, {
+      total: results.length,
+      results,
+      mode: direction,
+      fetched: results.length,
+    })
+  } catch (error) {
+    res.statusCode = 500
+    res.end(error instanceof Error ? error.message : String(error))
+  }
+}
+
+async function handlePaperCitations(req: IncomingMessage, res: ServerResponse, next: () => void) {
+  await handlePaperLinks(req, res, next, 'citations')
+}
+
+async function handlePaperReferences(req: IncomingMessage, res: ServerResponse, next: () => void) {
+  await handlePaperLinks(req, res, next, 'references')
 }
 
 async function handlePaperPreviewPdf(req: IncomingMessage, res: ServerResponse, next: () => void) {
@@ -1258,6 +1338,8 @@ function devSearchApiPlugin(): Plugin {
     name: 'lumen-dev-search-api',
     configureServer(server) {
       server.middlewares.use('/api/search-papers', handleSearchPapers)
+      server.middlewares.use('/api/paper-citations', handlePaperCitations)
+      server.middlewares.use('/api/paper-references', handlePaperReferences)
       server.middlewares.use('/api/paper-preview/pdf', handlePaperPreviewPdf)
       server.middlewares.use('/api/paper-preview/html', handlePaperPreviewHtml)
       server.middlewares.use('/api/ai/chat', handleAiChat)

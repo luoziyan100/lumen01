@@ -2,6 +2,7 @@ import type { ToolCall, AgentMessage } from '../adapters/types.ts'
 import { executeAcademicSearch } from './academic-search.ts'
 import { executeReadPapers, type ReadPapersContext } from './read-papers.ts'
 import { executeSearchLocalLibrary, type LocalLibraryContext } from './local-library.ts'
+import { executeCitationSearch, executeReferenceSearch } from './citation-search.ts'
 
 export interface ToolExecutionContext extends ReadPapersContext, LocalLibraryContext {
   conversationHistory: AgentMessage[]
@@ -20,6 +21,10 @@ export async function executeResearchTool(
         return await executeReadPapers(toolCall.arguments, context, signal)
       case 'search_local_library':
         return await executeSearchLocalLibrary(toolCall.arguments, context)
+      case 'search_citations':
+        return await executeCitationSearch(toolCall.arguments, signal)
+      case 'search_references':
+        return await executeReferenceSearch(toolCall.arguments, signal)
       default:
         return { error: `未知工具: ${toolCall.name}` }
     }

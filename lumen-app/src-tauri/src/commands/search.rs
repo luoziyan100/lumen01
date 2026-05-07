@@ -855,6 +855,20 @@ struct SemanticScholarResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct SemanticScholarLinkResponse {
+    #[serde(default)]
+    data: Vec<SemanticScholarLink>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SemanticScholarLink {
+    #[serde(rename = "citingPaper")]
+    citing_paper: Option<SemanticScholarPaper>,
+    #[serde(rename = "citedPaper")]
+    cited_paper: Option<SemanticScholarPaper>,
+}
+
+#[derive(Debug, Deserialize)]
 struct SemanticScholarPaper {
     #[serde(rename = "paperId")]
     paper_id: Option<String>,
@@ -892,6 +906,61 @@ struct SemanticScholarJournal {
     name: Option<String>,
 }
 
+fn semantic_scholar_get(client: &reqwest::Client, url: &str) -> reqwest::RequestBuilder {
+    let mut req = client.get(url);
+    if let Ok(api_key) = std::env::var("SEMANTIC_SCHOLAR_API_KEY") {
+        if !api_key.trim().is_empty() {
+            req = req.header("x-api-key", api_key);
+        }
+    }
+    req
+}
+
+fn semantic_paper_to_search_result(p: SemanticScholarPaper) -> Option<SearchResult> {
+    let title = p.title?;
+    let id = p.paper_id.unwrap_or_default();
+    let source_url = p.url.unwrap_or_else(|| {
+        if id.is_empty() {
+            String::new()
+        } else {
+            format!("https://www.semanticscholar.org/paper/{}", id)
+        }
+    });
+    let authors = p
+        .authors
+        .into_iter()
+        .filter_map(|a| a.name.map(|name| SearchAuthor { name }))
+        .collect();
+    let doi = p
+        .external_ids
+        .as_ref()
+        .and_then(|ids| ids.get("DOI").cloned());
+    let journal = p.journal.and_then(|j| j.name).or(p.venue);
+    let open_access_pdf_url = p.open_access_pdf.and_then(|pdf| pdf.url);
+    Some(SearchResult {
+        id,
+        title,
+        abstract_text: p.abstract_text,
+        authors,
+        year: p.year,
+        citation_count: p.citation_count.unwrap_or(0),
+        open_access_url: open_access_pdf_url.clone(),
+        open_access_pdf_url,
+        open_access_landing_url: if source_url.is_empty() {
+            None
+        } else {
+            Some(source_url.clone())
+        },
+        source_url,
+        source: "Semantic Scholar".to_string(),
+        journal,
+        doi,
+        published_date: p.publication_date.or_else(|| date_from_year(p.year)),
+        is_top_journal: false,
+        quality_score: 0.0,
+    })
+}
+
 async fn search_semantic_scholar(
     client: &reqwest::Client,
     query: &str,
@@ -918,14 +987,7 @@ async fn search_semantic_scholar(
         url.push_str("&sort=publicationDate%3Adesc");
     }
 
-    let mut req = client.get(&url);
-    if let Ok(api_key) = std::env::var("SEMANTIC_SCHOLAR_API_KEY") {
-        if !api_key.trim().is_empty() {
-            req = req.header("x-api-key", api_key);
-        }
-    }
-
-    let resp = match req.send().await {
+    let resp = match semantic_scholar_get(client, &url).send().await {
         Ok(r) => r,
         Err(e) => {
             log::warn!("Semantic Scholar 请求失败: {}", e);
@@ -950,51 +1012,51 @@ async fn search_semantic_scholar(
 
     data.data
         .into_iter()
-        .filter_map(|p| {
-            let title = p.title?;
-            let id = p.paper_id.unwrap_or_default();
-            let source_url = p.url.clone().unwrap_or_else(|| {
-                if id.is_empty() {
-                    String::new()
-                } else {
-                    format!("https://www.semanticscholar.org/paper/{}", id)
-                }
-            });
-            let authors = p
-                .authors
-                .into_iter()
-                .filter_map(|a| a.name.map(|name| SearchAuthor { name }))
-                .collect();
-            let doi = p
-                .external_ids
-                .as_ref()
-                .and_then(|ids| ids.get("DOI").cloned());
-            let journal = p.journal.and_then(|j| j.name).or(p.venue);
-            let open_access_pdf_url = p.open_access_pdf.and_then(|pdf| pdf.url);
-            Some(SearchResult {
-                id,
-                title,
-                abstract_text: p.abstract_text,
-                authors,
-                year: p.year,
-                citation_count: p.citation_count.unwrap_or(0),
-                open_access_url: open_access_pdf_url.clone(),
-                open_access_pdf_url,
-                open_access_landing_url: if source_url.is_empty() {
-                    None
-                } else {
-                    Some(source_url.clone())
-                },
-                source_url,
-                source: "Semantic Scholar".to_string(),
-                journal,
-                doi,
-                published_date: p.publication_date.or_else(|| date_from_year(p.year)),
-                is_top_journal: false,
-                quality_score: 0.0,
-            })
-        })
+        .filter_map(semantic_paper_to_search_result)
         .collect()
+}
+
+async fn search_semantic_scholar_links(
+    client: &reqwest::Client,
+    paper_id: &str,
+    limit: i32,
+    direction: &str,
+) -> Result<Vec<SearchResult>, String> {
+    let fields = "paperId,title,abstract,year,publicationDate,citationCount,authors,url,openAccessPdf,venue,journal,externalIds";
+    let url = format!(
+        "https://api.semanticscholar.org/graph/v1/paper/{}/{}?fields={}&limit={}",
+        urlencoding::encode(paper_id),
+        direction,
+        urlencoding::encode(fields),
+        limit
+    );
+    let resp = semantic_scholar_get(client, &url)
+        .send()
+        .await
+        .map_err(|e| format!("Semantic Scholar {} 请求失败: {}", direction, e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Semantic Scholar {} 状态码: {}", direction, resp.status()));
+    }
+
+    let data = resp
+        .json::<SemanticScholarLinkResponse>()
+        .await
+        .map_err(|e| format!("Semantic Scholar {} 解析失败: {}", direction, e))?;
+    let options = SearchOptions::default();
+    let tokens: Vec<String> = Vec::new();
+    Ok(data
+        .data
+        .into_iter()
+        .filter_map(|link| {
+            if direction == "citations" {
+                link.citing_paper
+            } else {
+                link.cited_paper
+            }
+        })
+        .filter_map(semantic_paper_to_search_result)
+        .map(|result| annotate_result(result, &tokens, &options))
+        .collect())
 }
 
 // ---- Crossref ----
@@ -1565,6 +1627,48 @@ pub async fn search_papers(
         from_date: options.from_date,
         until_date: options.until_date,
     })
+}
+
+async fn search_paper_link_direction(
+    paper_id: String,
+    limit: Option<i32>,
+    direction: &str,
+) -> Result<SearchResponse, String> {
+    let requested_limit = limit.unwrap_or(20).clamp(1, 50);
+    let client = reqwest::Client::builder()
+        .timeout(academic_search_timeout())
+        .user_agent("Lumen/0.1 (mailto:zluo5820@gmail.com)")
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+    let results =
+        search_semantic_scholar_links(&client, &paper_id, requested_limit, direction).await?;
+    let total = results.len() as i32;
+    Ok(SearchResponse {
+        total,
+        results,
+        mode: Some(direction.to_string()),
+        total_available: None,
+        fetched: Some(total),
+        categories: None,
+        from_date: None,
+        until_date: None,
+    })
+}
+
+#[tauri::command]
+pub async fn search_paper_citations(
+    paper_id: String,
+    limit: Option<i32>,
+) -> Result<SearchResponse, String> {
+    search_paper_link_direction(paper_id, limit, "citations").await
+}
+
+#[tauri::command]
+pub async fn search_paper_references(
+    paper_id: String,
+    limit: Option<i32>,
+) -> Result<SearchResponse, String> {
+    search_paper_link_direction(paper_id, limit, "references").await
 }
 
 #[cfg(test)]
